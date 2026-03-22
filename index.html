@@ -13,29 +13,23 @@
         <aside class="rail" aria-label="Primary navigation">
             <div class="brand">ViSteam</div>
             <nav>
-                <a href="#">
+                <a href="#" data-view="overview">
                     <span class="icon icon-overview" aria-hidden="true">
                         <svg viewBox="0 0 24 24" role="presentation"><circle cx="12" cy="12" r="7" /></svg>
                     </span>
                     <span>Overview</span>
                 </a>
-                <a href="#">
+                <a href="#" data-view="trends">
                     <span class="icon icon-dashboards" aria-hidden="true">
                         <svg viewBox="0 0 24 24" role="presentation"><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" /></svg>
                     </span>
-                    <span>Dashboards</span>
+                    <span>Trends</span>
                 </a>
-                <a href="#">
-                    <span class="icon icon-alerts" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" role="presentation"><path d="M12 3l-3 7h4l-2 7 6-9h-4z" /></svg>
-                    </span>
-                    <span>Alerts</span>
-                </a>
-                <a href="#">
+                <a href="#" data-view="compare">
                     <span class="icon icon-data" aria-hidden="true">
                         <svg viewBox="0 0 24 24" role="presentation"><path d="M7 12a5 5 0 0 1 5-5h5" /><path d="M17 12a5 5 0 0 1-5 5H7" /><circle cx="7" cy="12" r="2" /><circle cx="17" cy="12" r="2" /></svg>
                     </span>
-                    <span>Data Feeds</span>
+                    <span>Compare</span>
                 </a>
             </nav>
             <button class="ghost">
@@ -78,20 +72,99 @@
             </section>
 
             <section class="canvas" aria-label="graph staging area">
-                <div class="canvas__grid">
-                    <article class="canvas__cell canvas__cell--primary">
-                        <header>Primary Graph Canvas</header>
-                    </article>
-                    <article class="canvas__cell">
-                        <header>Secondary View</header>
-                    </article>
-                    <article class="canvas__cell">
-                        <header>Comparison View</header>
-                    </article>
+                <div class="canvas__blank" role="status">
+                    <p>Visual command center primed.</p>
+                    <small>Select any module on the left to light up this grid.</small>
                 </div>
-                <p class="canvas__hint">Drop charts, heatmaps, or timelines into any panel when your data is ready.</p>
+                <div class="canvas__content" data-view="trends" hidden>
+                    <div class="canvas__grid canvas__grid--trends">
+                        <article class="canvas__cell canvas__cell--trend">
+                            <header>Momentum Surface</header>
+                            <form class="trend-controls" aria-label="Momentum surface controls">
+                                <label class="trend-control">
+                                    <span>Game Count</span>
+                                    <select name="game-count">
+                                        <option value="top10">Top 10</option>
+                                        <option value="top15">Top 15</option>
+                                    </select>
+                                </label>
+                                <label class="trend-control">
+                                    <span>Publisher Scope</span>
+                                    <select name="publisher-scope">
+                                        <option value="all">All Companies</option>
+                                        <option value="large">Large Companies</option>
+                                        <option value="medium">Medium Studios</option>
+                                        <option value="indie">Indie Teams</option>
+                                    </select>
+                                </label>
+                                <label class="trend-control trend-control--range">
+                                    <span>Time Window</span>
+                                    <div class="trend-control__range">
+                                        <input type="text" name="start-date" placeholder="Start YYYY-MM-DD" aria-label="Start date" value="2025-01-01">
+                                        <input type="text" name="end-date" placeholder="End YYYY-MM-DD" aria-label="End date" value="2025-12-31">
+                                    </div>
+                                </label>
+                            </form>
+                            <p class="canvas__placeholder">Reserved for rolling 30-day velocity visuals.</p>
+                        </article>
+                        <article class="canvas__cell canvas__cell--trend">
+                            <header>Peak Trajectory</header>
+                            <p class="canvas__placeholder">Reserved for comparative peak projections.</p>
+                        </article>
+                    </div>
+                    <p class="canvas__hint">Plug in your trendline or regression visuals once the feeds are wired.</p>
+                </div>
+                <div class="canvas__content" data-view="compare" hidden>
+                    <div class="canvas__grid">
+                        <article class="canvas__cell canvas__cell--primary">
+                            <header>Primary Comparison Canvas</header>
+                        </article>
+                        <article class="canvas__cell">
+                            <header>Secondary View</header>
+                        </article>
+                        <article class="canvas__cell">
+                            <header>Contrast View</header>
+                        </article>
+                    </div>
+                    <p class="canvas__hint">Drop charts, heatmaps, or timelines into any panel when your data is ready.</p>
+                </div>
             </section>
         </div>
     </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const navLinks = document.querySelectorAll(".rail nav a[data-view]");
+            const blankState = document.querySelector(".canvas__blank");
+            const canvasPanels = document.querySelectorAll(".canvas__content[data-view]");
+
+            if (!navLinks.length || !blankState || !canvasPanels.length) {
+                return;
+            }
+
+            navLinks.forEach((link) => {
+                link.addEventListener("click", (event) => {
+                    event.preventDefault();
+
+                    navLinks.forEach((item) => item.classList.remove("is-active"));
+                    link.classList.add("is-active");
+
+                    const targetView = link.dataset.view;
+                    let matchedPanel = null;
+
+                    canvasPanels.forEach((panel) => {
+                        if (panel.dataset.view === targetView) {
+                            panel.hidden = false;
+                            matchedPanel = panel;
+                        } else {
+                            panel.hidden = true;
+                        }
+                    });
+
+                    blankState.hidden = Boolean(matchedPanel);
+                });
+            });
+        });
+    </script>
 </body>
 </html>
