@@ -105,14 +105,20 @@
                                     </div>
                                 </label>
                             </form>
-                            <p class="canvas__placeholder">Reserved for rolling 30-day velocity visuals.</p>
+                            <div class="trend-actions">
+                                <button class="trend-button trend-start" id="trendStart" type="button" disabled>Start Simulation</button>
+                                <button class="trend-button trend-pause" id="trendPause" type="button" disabled>Pause</button>
+                            </div>
+                            <p class="trend-status" id="trendStatus">Loading live telemetry&hellip;</p>
+                            <div class="trend-chart" role="presentation">
+                                <canvas id="trendChart" width="960" height="420" aria-label="Trend line chart placeholder"></canvas>
+                                <div class="trend-tooltip" id="trendTooltip" hidden></div>
+                            </div>
                         </article>
                         <article class="canvas__cell canvas__cell--trend">
                             <header>Peak Trajectory</header>
-                            <p class="canvas__placeholder">Reserved for comparative peak projections.</p>
                         </article>
                     </div>
-                    <p class="canvas__hint">Plug in your trendline or regression visuals once the feeds are wired.</p>
                 </div>
                 <div class="canvas__content" data-view="compare" hidden>
                     <div class="canvas__grid">
@@ -126,7 +132,6 @@
                             <header>Contrast View</header>
                         </article>
                     </div>
-                    <p class="canvas__hint">Drop charts, heatmaps, or timelines into any panel when your data is ready.</p>
                 </div>
             </section>
         </div>
@@ -164,6 +169,620 @@
                     blankState.hidden = Boolean(matchedPanel);
                 });
             });
+
+            const trendStartButton = document.getElementById("trendStart");
+            const trendPauseButton = document.getElementById("trendPause");
+            const trendCanvas = document.getElementById("trendChart");
+            const trendControls = document.querySelector(".trend-controls");
+            const trendTooltip = document.getElementById("trendTooltip");
+
+            if (trendStartButton && trendCanvas && trendControls && trendPauseButton && trendTooltip) {
+                const ctx = trendCanvas.getContext("2d");
+                const colorPalette = [
+                    "#64e9ff",
+                    "#8f7bff",
+                    "#ff8bd2",
+                    "#f7c948",
+                    "#7ed957",
+                    "#ff6f61",
+                    "#46c2ff",
+                    "#e56b6f",
+                    "#c492ff",
+                    "#73fbd3",
+                    "#ffbf69",
+                    "#72a1ff",
+                    "#ff9d76",
+                    "#7bd389",
+                    "#f67280"
+                ];
+                const FRAME_INTERVAL = 300;
+                const numberFormatter = new Intl.NumberFormat("en", {
+                    notation: "compact",
+                    maximumFractionDigits: 1
+                });
+                const trendStatusLabel = document.getElementById("trendStatus");
+                const dataStore = {
+                    metadata: new Map(),
+                    rankedAppIds: [],
+                    seriesById: new Map(),
+                    dateRange: null,
+                    ready: false
+                };
+                let animationTimer = null;
+                let animationState = null;
+                let lastRenderedCoords = null;
+
+                const showTrendStatus = (message, isError = false) => {
+                    if (!trendStatusLabel) {
+                        return;
+                    }
+                    trendStatusLabel.textContent = message;
+                    trendStatusLabel.classList.toggle("is-error", Boolean(isError));
+                };
+
+                const parseCSVRows = (text) => {
+                    const rows = [];
+                    let current = "";
+                    let row = [];
+                    let inQuotes = false;
+                    for (let i = 0; i < text.length; i += 1) {
+                        const char = text[i];
+                        if (char === "\"") {
+                            if (inQuotes && text[i + 1] === "\"") {
+                                current += "\"";
+                                i += 1;
+                            } else {
+                                inQuotes = !inQuotes;
+                            }
+                        } else if (char === "," && !inQuotes) {
+                            row.push(current);
+                            current = "";
+                        } else if ((char === "\n" || char === "\r") && !inQuotes) {
+                            if (char === "\r" && text[i + 1] === "\n") {
+                                i += 1;
+                            }
+                            row.push(current);
+                            rows.push(row);
+                            row = [];
+                            current = "";
+                        } else {
+                            current += char;
+                        }
+                    }
+                    if (current.length > 0 || row.length) {
+                        row.push(current);
+                        rows.push(row);
+                    }
+                    return rows.filter((entry) => entry.length && !(entry.length === 1 && entry[0] === ""));
+                };
+
+                const normalizeScope = (studioSize = "") => {
+                    const normalized = studioSize.toLowerCase();
+                    if (normalized.includes("large")) {
+                        return "large";
+                    }
+                    if (normalized.includes("medium")) {
+                        return "medium";
+                    }
+                    if (normalized.includes("indie")) {
+                        return "indie";
+                    }
+                    return "all";
+                };
+
+                const hydrateMetadata = (text) => {
+                    const rows = parseCSVRows(text);
+                    if (!rows.length) {
+                        return { metaMap: new Map(), rankedAppIds: [] };
+                    }
+                    const headers = rows[0];
+                    const metaMap = new Map();
+                    const ordered = [];
+                    rows.slice(1).forEach((cells) => {
+                        const record = {};
+                        headers.forEach((header, index) => {
+                            record[header] = cells[index] ?? "";
+                        });
+                        const appId = (record.AppID || "").trim();
+                        if (!appId) {
+                            return;
+                        }
+                        const studioSize = (record["Studio Size"] || "").trim();
+                        const peakCCU = Number(String(record["Peak CCU"] || "0").replace(/,/g, "")) || 0;
+                        const entry = {
+                            appId,
+                            name: (record.Name || appId).trim(),
+                            developer: (record.Developers || "").trim(),
+                            publisher: (record.Publishers || "").trim(),
+                            categories: (record.Categories || "").trim(),
+                            genres: (record.Genres || "").trim(),
+                            tags: (record.Tags || "").trim(),
+                            studioSize,
+                            scope: normalizeScope(studioSize),
+                            peakCCU
+                        };
+                        metaMap.set(appId, entry);
+                        ordered.push(entry);
+                    });
+                    ordered.sort((a, b) => b.peakCCU - a.peakCCU);
+                    return { metaMap, rankedAppIds: ordered.map((entry) => entry.appId) };
+                };
+
+                const hydrateDailySeries = (text) => {
+                    const rows = parseCSVRows(text);
+                    if (!rows.length) {
+                        return { seriesById: new Map(), dateRange: null };
+                    }
+                    const headers = rows[0];
+                    const appIds = headers.slice(1);
+                    const seriesById = new Map();
+                    let minDate = null;
+                    let maxDate = null;
+                    rows.slice(1).forEach((cells) => {
+                        const rawDate = (cells[0] || "").trim();
+                        if (!rawDate) {
+                            return;
+                        }
+                        const parsedDate = new Date(rawDate);
+                        if (Number.isNaN(parsedDate.getTime())) {
+                            return;
+                        }
+                        const dateKey = parsedDate.toISOString().slice(0, 10);
+                        if (!minDate || parsedDate < minDate) {
+                            minDate = parsedDate;
+                        }
+                        if (!maxDate || parsedDate > maxDate) {
+                            maxDate = parsedDate;
+                        }
+                        appIds.forEach((appId, index) => {
+                            if (!appId) {
+                                return;
+                            }
+                            const rawValue = cells[index + 1];
+                            const value = Number(rawValue || 0);
+                            if (!seriesById.has(appId)) {
+                                seriesById.set(appId, new Map());
+                            }
+                            if (!Number.isNaN(value)) {
+                                seriesById.get(appId).set(dateKey, value);
+                            }
+                        });
+                    });
+                    const dateRange = minDate && maxDate ? { start: minDate, end: maxDate } : null;
+                    return { seriesById, dateRange };
+                };
+
+                const clampToDataDomain = (startDate, endDate) => {
+                    if (!dataStore.dateRange) {
+                        return { start: startDate, end: endDate };
+                    }
+                    let start = new Date(startDate);
+                    let end = new Date(endDate);
+                    if (start > end) {
+                        const temp = start;
+                        start = end;
+                        end = temp;
+                    }
+                    if (start < dataStore.dateRange.start) {
+                        start = new Date(dataStore.dateRange.start);
+                    }
+                    if (end > dataStore.dateRange.end) {
+                        end = new Date(dataStore.dateRange.end);
+                    }
+                    return { start, end };
+                };
+
+                const buildDatasetsFromTelemetry = (count, scope, startDate, endDate) => {
+                    if (!dataStore.ready || !dataStore.dateRange) {
+                        return null;
+                    }
+                    const range = clampToDataDomain(startDate, endDate);
+                    const timeline = buildTimeline(range.start, range.end);
+                    if (!timeline.length) {
+                        return null;
+                    }
+                    const targetScope = scope === "all" ? null : scope;
+                    const selectedMetas = dataStore.rankedAppIds
+                        .map((appId) => dataStore.metadata.get(appId))
+                        .filter((meta) => meta && (!targetScope || meta.scope === targetScope))
+                        .filter((meta) => dataStore.seriesById.has(meta.appId))
+                        .slice(0, count);
+
+                    const datasets = selectedMetas
+                        .map((meta) => {
+                            const dayMap = dataStore.seriesById.get(meta.appId);
+                            const points = timeline.map((date) => {
+                                const key = date.toISOString().slice(0, 10);
+                                const value = dayMap.get(key);
+                                return typeof value === "number" ? value : 0;
+                            });
+                            return {
+                                name: meta.name,
+                                company: meta.publisher || meta.developer || "Independent Studio",
+                                category: meta.studioSize || "Unspecified",
+                                scope: meta.scope,
+                                points,
+                                coords: [],
+                                meta
+                            };
+                        })
+                        .filter((series) => series.points.some((point) => point > 0));
+
+                    if (!datasets.length) {
+                        return null;
+                    }
+
+                    return { timeline, datasets };
+                };
+
+                const hideTooltip = () => {
+                    trendTooltip.hidden = true;
+                };
+
+                const parseDateInput = (value, fallback) => {
+                    const date = new Date(value);
+                    if (Number.isNaN(date.getTime())) {
+                        return new Date(fallback);
+                    }
+                    return date;
+                };
+
+                const buildTimeline = (startDate, endDate) => {
+                    const timeline = [];
+                    const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+                    const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+                    const oneDay = 24 * 60 * 60 * 1000;
+
+                    let cursor = start;
+                    while (cursor <= end) {
+                        timeline.push(new Date(cursor));
+                        cursor = new Date(cursor.getTime() + oneDay);
+                    }
+
+                    if (timeline.length < 2) {
+                        timeline.push(new Date(end.getTime()));
+                    }
+
+                    return timeline;
+                };
+
+                const drawChart = (timeline, datasets, visiblePoints) => {
+                    ctx.clearRect(0, 0, trendCanvas.width, trendCanvas.height);
+                    const padding = 50;
+                    const width = trendCanvas.width - padding * 2;
+                    const height = trendCanvas.height - padding * 2;
+
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(padding, padding);
+                    ctx.lineTo(padding, padding + height);
+                    ctx.lineTo(padding + width, padding + height);
+                    ctx.stroke();
+
+                    const allPoints = datasets.flatMap((series) => series.points.slice(0, visiblePoints));
+                    const maxVal = Math.max(...allPoints, 1);
+                    const minVal = Math.min(...allPoints, 0);
+                    const range = Math.max(maxVal - minVal, 1);
+                    const stepX = width / Math.max(timeline.length - 1, 1);
+
+                    ctx.save();
+                    ctx.fillStyle = "rgba(231, 236, 245, 0.8)";
+                    ctx.font = "600 11px 'Space Grotesk', sans-serif";
+                    ctx.textAlign = "right";
+                    ctx.textBaseline = "middle";
+                    const yTicks = 4;
+                    for (let i = 0; i <= yTicks; i += 1) {
+                        const ratio = i / yTicks;
+                        const y = padding + ratio * height;
+                        const value = maxVal - ratio * range;
+                        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+                        ctx.beginPath();
+                        ctx.moveTo(padding - 6, y);
+                        ctx.lineTo(padding, y);
+                        ctx.stroke();
+                        ctx.fillText(numberFormatter.format(value), padding - 10, y);
+                    }
+                    ctx.restore();
+
+                    ctx.save();
+                    ctx.fillStyle = "rgba(231, 236, 245, 0.75)";
+                    ctx.font = "600 11px 'Space Grotesk', sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "top";
+                    const xTicks = Math.min(6, timeline.length);
+                    const stepCount = Math.max(Math.floor((timeline.length - 1) / Math.max(xTicks - 1, 1)), 1);
+                    for (let i = 0; i < timeline.length; i += stepCount) {
+                        const x = padding + stepX * i;
+                        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+                        ctx.beginPath();
+                        ctx.moveTo(x, padding + height);
+                        ctx.lineTo(x, padding + height + 6);
+                        ctx.stroke();
+                        const label = timeline[i].toISOString().slice(5, 10);
+                        ctx.fillText(label, x, padding + height + 8);
+                        if (i + stepCount >= timeline.length - 1) {
+                            break;
+                        }
+                    }
+                    ctx.restore();
+
+                    datasets.forEach((series, seriesIndex) => {
+                        const coordBucket = [];
+                        ctx.beginPath();
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = colorPalette[seriesIndex % colorPalette.length];
+                        series.points.slice(0, visiblePoints).forEach((value, idx) => {
+                            const x = padding + stepX * idx;
+                            const normalized = (value - minVal) / range;
+                            const y = padding + (1 - normalized) * height;
+                            coordBucket.push({
+                                x,
+                                y,
+                                value,
+                                date: timeline[idx],
+                                series
+                            });
+                            if (idx === 0) {
+                                ctx.moveTo(x, y);
+                            } else {
+                                ctx.lineTo(x, y);
+                            }
+                        });
+                        ctx.stroke();
+                        series.coords = coordBucket;
+                    });
+
+                    ctx.fillStyle = "rgba(231, 236, 245, 0.9)";
+                    ctx.font = "600 13px 'Space Grotesk', sans-serif";
+                    const progressLabel = timeline[Math.min(visiblePoints - 1, timeline.length - 1)]?.toISOString().slice(0, 10) || "";
+                    ctx.fillText(`Day ending ${progressLabel}`, padding, padding - 15);
+                    lastRenderedCoords = datasets.map((series) => series.coords || []);
+                };
+
+                const setPauseButtonState = (mode) => {
+                    if (mode === "idle") {
+                        trendPauseButton.disabled = true;
+                        trendPauseButton.textContent = "Pause";
+                        trendPauseButton.dataset.mode = "idle";
+                        trendPauseButton.classList.remove("is-active");
+                        return;
+                    }
+                    trendPauseButton.disabled = false;
+                    trendPauseButton.classList.add("is-active");
+                    if (mode === "paused") {
+                        trendPauseButton.textContent = "Resume";
+                        trendPauseButton.dataset.mode = "paused";
+                    } else {
+                        trendPauseButton.textContent = "Pause";
+                        trendPauseButton.dataset.mode = "running";
+                    }
+                };
+
+                const stopAnimation = (resetButton = false) => {
+                    if (animationTimer) {
+                        clearInterval(animationTimer);
+                        animationTimer = null;
+                    }
+                    if (resetButton) {
+                        lastRenderedCoords = null;
+                    }
+                    if (resetButton) {
+                        animationState = null;
+                        setPauseButtonState("idle");
+                        hideTooltip();
+                    }
+                };
+
+                const advanceFrame = () => {
+                    if (!animationState) {
+                        stopAnimation(true);
+                        return;
+                    }
+                    animationState.visiblePoints += 1;
+                    if (animationState.visiblePoints > animationState.timeline.length) {
+                        stopAnimation(true);
+                        return;
+                    }
+                    drawChart(animationState.timeline, animationState.datasets, animationState.visiblePoints);
+                };
+
+                const startLoop = () => {
+                    if (!animationState) {
+                        return;
+                    }
+                    stopAnimation();
+                    drawChart(animationState.timeline, animationState.datasets, animationState.visiblePoints);
+                    animationTimer = setInterval(advanceFrame, FRAME_INTERVAL);
+                    setPauseButtonState("running");
+                };
+
+                const pauseAnimation = () => {
+                    if (!animationTimer) {
+                        return;
+                    }
+                    clearInterval(animationTimer);
+                    animationTimer = null;
+                    setPauseButtonState("paused");
+                };
+
+                const resumeAnimation = () => {
+                    if (!animationState || animationTimer) {
+                        return;
+                    }
+                    if (animationState.visiblePoints >= animationState.timeline.length) {
+                        setPauseButtonState("idle");
+                        return;
+                    }
+                    animationTimer = setInterval(advanceFrame, FRAME_INTERVAL);
+                    setPauseButtonState("running");
+                };
+
+                setPauseButtonState("idle");
+
+                setPauseButtonState("idle");
+
+                trendStartButton.addEventListener("click", () => {
+                    stopAnimation(true);
+                    hideTooltip();
+
+                    if (!dataStore.ready) {
+                        showTrendStatus("Telemetry still syncing. Hold tight.", true);
+                        return;
+                    }
+
+                    const gameCountSelect = trendControls.querySelector("select[name='game-count']");
+                    const scopeSelect = trendControls.querySelector("select[name='publisher-scope']");
+                    const startInput = trendControls.querySelector("input[name='start-date']");
+                    const endInput = trendControls.querySelector("input[name='end-date']");
+
+                    const desiredCount = gameCountSelect?.value === "top15" ? 15 : 10;
+                    const fallbackStart = dataStore.dateRange?.start || new Date("2025-12-20");
+                    const fallbackEnd = dataStore.dateRange?.end || new Date("2026-01-17");
+                    const startDate = parseDateInput(startInput?.value || fallbackStart.toISOString().slice(0, 10), fallbackStart);
+                    const endDate = parseDateInput(endInput?.value || fallbackEnd.toISOString().slice(0, 10), fallbackEnd);
+                    const config = buildDatasetsFromTelemetry(
+                        desiredCount,
+                        scopeSelect?.value || "all",
+                        startDate,
+                        endDate
+                    );
+
+                    if (!config) {
+                        showTrendStatus("No telemetry for that filter window.", true);
+                        setPauseButtonState("idle");
+                        return;
+                    }
+
+                    animationState = {
+                        timeline: config.timeline,
+                        datasets: config.datasets,
+                        visiblePoints: 1
+                    };
+
+                    showTrendStatus(
+                        `Animating ${config.datasets.length} titles from ${config.timeline[0].toISOString().slice(0, 10)} to ${
+                            config.timeline[config.timeline.length - 1].toISOString().slice(0, 10)
+                        }.`
+                    );
+
+                    startLoop();
+                });
+
+                trendPauseButton.addEventListener("click", () => {
+                    if (!animationState) {
+                        return;
+                    }
+                    if (trendPauseButton.dataset.mode === "running") {
+                        pauseAnimation();
+                    } else {
+                        resumeAnimation();
+                    }
+                });
+
+                trendCanvas.addEventListener("dblclick", () => {
+                    stopAnimation(true);
+                    hideTooltip();
+                });
+
+                trendCanvas.addEventListener("mouseleave", hideTooltip);
+
+                trendCanvas.addEventListener("mousemove", (event) => {
+                    if (!animationState || !lastRenderedCoords) {
+                        hideTooltip();
+                        return;
+                    }
+                    const rect = trendCanvas.getBoundingClientRect();
+                    const mouseX = event.clientX - rect.left;
+                    const mouseY = event.clientY - rect.top;
+                    let nearest = null;
+                    const threshold = 12;
+
+                    lastRenderedCoords.forEach((coords) => {
+                        coords.forEach((point) => {
+                            const dx = point.x - mouseX;
+                            const dy = point.y - mouseY;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            if (distance <= threshold && (!nearest || distance < nearest.distance)) {
+                                nearest = { ...point, distance };
+                            }
+                        });
+                    });
+
+                    if (!nearest) {
+                        hideTooltip();
+                        return;
+                    }
+
+                    const dateLabel = nearest.date?.toISOString().slice(0, 10) || "";
+                    trendTooltip.innerHTML = `
+                        <strong>${nearest.series.name}</strong>
+                        <span>${numberFormatter.format(nearest.value)} players</span>
+                        <span>${nearest.series.company}</span>
+                        <span>${nearest.series.category}</span>
+                        <span>${dateLabel}</span>
+                    `;
+                    trendTooltip.style.left = `${event.clientX - rect.left + 15}px`;
+                    trendTooltip.style.top = `${event.clientY - rect.top - 10}px`;
+                    trendTooltip.hidden = false;
+                });
+
+                const loadTelemetry = async () => {
+                    showTrendStatus("Loading live telemetry&hellip;");
+                    try {
+                        const [topResponse, dailyResponse] = await Promise.all([
+                            fetch("data/top500.csv"),
+                            fetch("data/daily_peaks_top500.csv")
+                        ]);
+
+                        if (!topResponse.ok || !dailyResponse.ok) {
+                            throw new Error("Failed to fetch CSV files");
+                        }
+
+                        const [topText, dailyText] = await Promise.all([topResponse.text(), dailyResponse.text()]);
+                        const metadataResult = hydrateMetadata(topText);
+                        const dailyResult = hydrateDailySeries(dailyText);
+
+                        dataStore.metadata = metadataResult.metaMap;
+                        dataStore.seriesById = dailyResult.seriesById;
+                        dataStore.dateRange = dailyResult.dateRange;
+                        dataStore.rankedAppIds = metadataResult.rankedAppIds.filter((appId) =>
+                            dataStore.seriesById.has(appId)
+                        );
+                        dataStore.ready = Boolean(dataStore.dateRange) && dataStore.rankedAppIds.length > 0;
+
+                        if (dataStore.ready) {
+                            const startInput = trendControls.querySelector("input[name='start-date']");
+                            const endInput = trendControls.querySelector("input[name='end-date']");
+                            if (startInput) {
+                                startInput.value = dataStore.dateRange.start.toISOString().slice(0, 10);
+                            }
+                            if (endInput) {
+                                endInput.value = dataStore.dateRange.end.toISOString().slice(0, 10);
+                            }
+                            trendStartButton.disabled = false;
+                            const dayRange = Math.max(
+                                Math.round(
+                                    (dataStore.dateRange.end.getTime() - dataStore.dateRange.start.getTime()) /
+                                        (24 * 60 * 60 * 1000)
+                                ) + 1,
+                                1
+                            );
+                            showTrendStatus(
+                                `Telemetry synced for ${dataStore.rankedAppIds.length} titles across ${dayRange} days.`
+                            );
+                        } else {
+                            showTrendStatus("CSV files loaded but no overlapping telemetry found.", true);
+                        }
+                    } catch (error) {
+                        console.error(error);
+                        trendStartButton.disabled = true;
+                        showTrendStatus("Failed to load CSV telemetry. Check console.", true);
+                    }
+                };
+
+                loadTelemetry();
+            }
         });
     </script>
 </body>

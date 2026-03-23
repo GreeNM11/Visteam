@@ -287,13 +287,6 @@ body {
     color: var(--muted);
 }
 
-.canvas__placeholder {
-    margin: 1.25rem 0 0;
-    color: var(--muted);
-    font-size: 0.85rem;
-    letter-spacing: 0.05em;
-}
-
 .trend-controls {
     margin-top: 1rem;
     display: flex;
@@ -341,6 +334,97 @@ body {
 
 .trend-control input::placeholder {
     color: var(--muted);
+}
+
+.trend-actions {
+    margin-top: 0.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.trend-status {
+    margin: 0.2rem 0 0;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    min-height: 1rem;
+}
+
+.trend-status.is-error {
+    color: #ff8bd2;
+}
+
+.trend-button {
+    padding: 0.5rem 1.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.trend-button:hover:not(:disabled) {
+    background: var(--accent);
+    color: #04111b;
+}
+
+.trend-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.trend-pause {
+    border-color: var(--muted);
+    color: var(--muted);
+}
+
+.trend-pause.is-active {
+    border-color: var(--accent-strong);
+    color: var(--accent-strong);
+}
+
+.trend-chart {
+    margin-top: 1rem;
+    border: 1px solid var(--stroke);
+    border-radius: 16px;
+    padding: 0.75rem;
+    background: rgba(6, 10, 16, 0.6);
+    position: relative;
+}
+
+.trend-chart canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.trend-tooltip {
+    position: absolute;
+    min-width: 180px;
+    padding: 0.55rem 0.7rem;
+    border-radius: 10px;
+    background: rgba(4, 6, 10, 0.92);
+    border: 1px solid var(--stroke);
+    color: var(--text);
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    transform: translate(-50%, -100%);
+}
+
+.trend-tooltip strong {
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
 }
 
 .canvas__cell:hover {
