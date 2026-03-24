@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
     }
 
+    // nav tabs decide which panel shows, so keep the blank state hidden once something is active
     navLinks.forEach((link) => {
         link.addEventListener("click", (event) => {
             event.preventDefault();
@@ -76,6 +77,7 @@ document.addEventListener("DOMContentLoaded", () => {
         day: "numeric"
     });
 
+    // shared store for everything fetched, keeps expensive parsing work centralized
     const dataStore = {
         metadata: new Map(),
         rankedAppIds: [],
@@ -88,7 +90,9 @@ document.addEventListener("DOMContentLoaded", () => {
         ready: false
     };
 
+    // clamps numeric input between the provided floor and ceiling
     const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+    // escapes html entities so hover cards stay safe
     const escapeHtml = (value = "") =>
         String(value)
             .replace(/&/g, "&amp;")
@@ -97,8 +101,10 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
 
+    // pads numbers to two digits for date keys
     const padNumber = (value) => String(value).padStart(2, "0");
 
+    // parses yyyy-mm-dd strings into midday date objects
     const createCalendarDate = (value) => {
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
         if (!match) {
@@ -108,23 +114,29 @@ document.addEventListener("DOMContentLoaded", () => {
         return new Date(Number(year), Number(month) - 1, Number(day), 12, 0, 0, 0);
     };
 
+    // clones a date while keeping the noon-time normalization
     const cloneCalendarDate = (date) =>
         new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
 
+    // quick helper to move dates forward or backward by days
     const addDays = (date, amount) => {
         const next = cloneCalendarDate(date);
         next.setDate(next.getDate() + amount);
         return next;
     };
 
+    // converts a date to a comparable utc day stamp
     const getUtcDayValue = (date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
 
+    // counts day offsets between two dates in utc space
     const daysBetween = (startDate, endDate) =>
         Math.round((getUtcDayValue(endDate) - getUtcDayValue(startDate)) / DAY_MS);
 
+    // canonical yyyy-mm-dd key for map lookups
     const toDateKey = (date) =>
         `${date.getFullYear()}-${padNumber(date.getMonth() + 1)}-${padNumber(date.getDate())}`;
 
+    // formats chart axis numbers with compact notation when big
     const formatAxisNumber = (value) => {
         const absolute = Math.abs(value);
         if (absolute >= 1000) {
@@ -133,6 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return decimalFormatter.format(value);
     };
 
+    // formats metric values differently for raw or indexed views
     const formatMetricValue = (value, mode, includeUnits = true) => {
         if (mode === "indexed") {
             const formatted = decimalFormatter.format(value);
@@ -144,6 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return includeUnits ? `${formatted} players` : formatted;
     };
 
+    // prints delta text for raw player counts
     const formatRawChange = (value) => {
         const prefix = value >= 0 ? "+" : "-";
         const absolute = Math.abs(value);
@@ -152,11 +166,13 @@ document.addEventListener("DOMContentLoaded", () => {
         return `${prefix}${formatted} players`;
     };
 
+    // prints delta text for indexed charts
     const formatIndexedChange = (value) => {
         const prefix = value >= 0 ? "+" : "";
         return `${prefix}${decimalFormatter.format(value)} pts`;
     };
 
+    // guard against divide by zero when showing percent change
     const formatPercentChange = (startValue, endValue) => {
         if (startValue <= 0) {
             return "No baseline";
@@ -164,8 +180,10 @@ document.addEventListener("DOMContentLoaded", () => {
         return percentFormatter.format((endValue - startValue) / startValue);
     };
 
+    // prefer publisher, then developer, then default label for studio text
     const getCompanyLabel = (meta) => meta.publisher || meta.developer || "Independent Studio";
 
+    // csv parser stays tiny and forgiving so we can feed it multiple data sources without new libs
     const parseCSVRows = (text) => {
         const rows = [];
         let current = "";
@@ -205,6 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return rows.filter((entry) => entry.length && !(entry.length === 1 && entry[0] === ""));
     };
 
+    // normalizes studio size strings to the scope buckets
     const normalizeScope = (studioSize = "") => {
         const normalized = studioSize.toLowerCase();
         if (normalized.includes("large")) {
@@ -219,6 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return "all";
     };
 
+    // metadata hydration stitches name, studio size, and rankings onto each app id
     const hydrateMetadata = (text) => {
         const rows = parseCSVRows(text);
         if (!rows.length) {
@@ -264,6 +284,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return { metaMap, rankedAppIds: ordered.map((entry) => entry.appId) };
     };
 
+    // this builds daily player series per app so charts can look up values quickly
     const hydrateDailySeries = (text) => {
         const rows = parseCSVRows(text);
         if (!rows.length) {
@@ -314,6 +335,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return { seriesById, dateRange };
     };
 
+    // expands a start/end range into a day-by-day timeline
     const buildTimeline = (startDate, endDate) => {
         const timeline = [];
         let cursor = cloneCalendarDate(startDate);
@@ -331,8 +353,10 @@ document.addEventListener("DOMContentLoaded", () => {
         return timeline;
     };
 
+    // parses user date strings while falling back to known safe dates
     const parseDateInput = (value, fallback) => createCalendarDate(value) || cloneCalendarDate(fallback);
 
+    // ensures requested date windows stay inside actual telemetry coverage
     const clampToDataDomain = (startDate, endDate) => {
         if (!dataStore.dateRange) {
             return {
@@ -361,8 +385,11 @@ document.addEventListener("DOMContentLoaded", () => {
         return { start, end };
     };
 
-    const getIndexForDate = (date) => clamp(daysBetween(dataStore.dateRange.start, date), 0, dataStore.fullTimeline.length - 1);
+    // converts a date into the matching index within the master timeline
+    const getIndexForDate = (date) =>
+        clamp(daysBetween(dataStore.dateRange.start, date), 0, dataStore.fullTimeline.length - 1);
 
+    // maps mouse events into canvas-relative coordinates
     const getRelativeCanvasPoint = (canvas, clientX, clientY) => {
         const rect = canvas.getBoundingClientRect();
         return {
@@ -372,12 +399,15 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     };
 
+    // checks if a pointer is within a chart plot rectangle
     const isPointInPlot = (point, plot) =>
         point.x >= plot.left && point.x <= plot.right && point.y >= plot.top && point.y <= plot.bottom;
 
+    // turns pixel offsets into timeline indices for zoom brushes
     const pixelToIndex = (x, plot, stepX, itemCount) =>
         clamp(Math.round((x - plot.left) / Math.max(stepX, 1)), 0, Math.max(itemCount - 1, 0));
 
+    // fills a canvas with a friendly placeholder when no data yet
     const drawCanvasPlaceholder = (ctx, canvas, title, detail) => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = "rgba(6, 10, 16, 0.82)";
@@ -396,6 +426,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ctx.fillText(detail, canvas.width / 2, canvas.height / 2 + 12);
     };
 
+    // loads both csv files and hydrates the global telemetry store
     const loadTelemetry = async () => {
         const [topResponse, dailyResponse] = await Promise.all([
             fetch("data/top500.csv"),
@@ -436,6 +467,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const telemetryPromise = loadTelemetry();
 
+    // wires up the animated trend canvas interactions
     const initTrendModule = () => {
         const trendStartButton = document.getElementById("trendStart");
         const trendPauseButton = document.getElementById("trendPause");
@@ -453,15 +485,18 @@ document.addEventListener("DOMContentLoaded", () => {
         let animationState = null;
         let lastRenderedCoords = null;
 
+        // updates the trend status chip with optional error styling
         const showTrendStatus = (message, isError = false) => {
             trendStatusLabel.textContent = message;
             trendStatusLabel.classList.toggle("is-error", Boolean(isError));
         };
 
+        // basic helper to hide the floating tooltip
         const hideTooltip = () => {
             trendTooltip.hidden = true;
         };
 
+        // slices telemetry according to filters and prepares canvas-ready datasets
         const buildDatasetsFromTelemetry = (count, scope, startDate, endDate) => {
             if (!dataStore.ready || !dataStore.dateRange) {
                 return null;
@@ -505,6 +540,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return { timeline, datasets };
         };
 
+        // renders the animated trend lines for the current frame
         const drawChart = (timeline, datasets, visiblePoints) => {
             ctx.clearRect(0, 0, trendCanvas.width, trendCanvas.height);
             const padding = 50;
@@ -604,6 +640,7 @@ document.addEventListener("DOMContentLoaded", () => {
             lastRenderedCoords = datasets.map((series) => series.coords || []);
         };
 
+        // toggles pause button copy and enabled state based on animation mode
         const setPauseButtonState = (mode) => {
             if (mode === "idle") {
                 trendPauseButton.disabled = true;
@@ -624,6 +661,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         };
 
+        // clears timers and optionally resets state when animation halts
         const stopAnimation = (resetState = false) => {
             if (animationTimer) {
                 clearInterval(animationTimer);
@@ -638,6 +676,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         };
 
+        // increments the frame counter and redraws until timeline ends
         const advanceFrame = () => {
             if (!animationState) {
                 stopAnimation(true);
@@ -653,6 +692,7 @@ document.addEventListener("DOMContentLoaded", () => {
             drawChart(animationState.timeline, animationState.datasets, animationState.visiblePoints);
         };
 
+        // kicks off the setInterval loop and initial render
         const startLoop = () => {
             if (!animationState) {
                 return;
@@ -664,6 +704,7 @@ document.addEventListener("DOMContentLoaded", () => {
             setPauseButtonState("running");
         };
 
+        // hands pause control to the user without dropping rendered state
         const pauseAnimation = () => {
             if (!animationTimer) {
                 return;
@@ -674,6 +715,7 @@ document.addEventListener("DOMContentLoaded", () => {
             setPauseButtonState("paused");
         };
 
+        // resumes the animation loop if there is more timeline to show
         const resumeAnimation = () => {
             if (!animationState || animationTimer) {
                 return;
@@ -822,6 +864,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
     };
 
+    // powers the multi-game comparison charts and interactions
     const initCompareModule = () => {
         const compareCanvas = document.getElementById("compareChart");
         const compareOverviewCanvas = document.getElementById("compareOverviewChart");
@@ -877,17 +920,21 @@ document.addEventListener("DOMContentLoaded", () => {
             overviewRenderMeta: null
         };
 
+        // updates the compare status banner with optional error styling
         const setCompareStatus = (message, isError = false) => {
             compareStatusLabel.textContent = message;
             compareStatusLabel.classList.toggle("is-error", Boolean(isError));
         };
 
+        // hides the compare tooltip when no point is hovered
         const hideCompareTooltip = () => {
             compareTooltip.hidden = true;
         };
 
+        // cycles through the palette for chips, lines, and swatches
         const getColorForIndex = (index) => COLOR_PALETTE[index % COLOR_PALETTE.length];
 
+        // keeps the zoom window valid and wide enough for rendering
         const ensureVisibleWindow = () => {
             if (!dataStore.ready) {
                 return;
@@ -918,6 +965,7 @@ document.addEventListener("DOMContentLoaded", () => {
             state.visibleWindow = { start, end };
         };
 
+        // checks whether the window spans the entire timeline
         const isFullWindow = () =>
             Boolean(
                 state.visibleWindow &&
@@ -925,6 +973,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     state.visibleWindow.end === dataStore.fullTimeline.length - 1
             );
 
+        // maps selected ids into metadata plus point arrays
         const getSelectedSeries = () =>
             state.selectedAppIds
                 .map((appId, index) => {
@@ -943,6 +992,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 })
                 .filter(Boolean);
 
+        // converts absolute player counts into indexed percentages
         const toIndexedSeries = (points) => {
             if (!points.length) {
                 return [];
@@ -959,6 +1009,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return points.map((value) => (value / baseline) * 100);
         };
 
+        // assembles the config used for both charts and summary cards
         const buildCompareConfig = () => {
             if (!dataStore.ready) {
                 return null;
@@ -1014,6 +1065,7 @@ document.addEventListener("DOMContentLoaded", () => {
             };
         };
 
+        // syncs the mode toggle buttons with the current metric mode
         const renderModeButtons = () => {
             compareModeToggle.querySelectorAll("button[data-mode]").forEach((button) => {
                 const isActive = button.dataset.mode === state.metricMode;
@@ -1022,6 +1074,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         };
 
+        // shows current selections as removable chips
         const renderSelectedChips = () => {
             if (!state.selectedAppIds.length) {
                 compareSelected.innerHTML = `
@@ -1053,6 +1106,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 .join("");
         };
 
+        // returns ranked search results from the tracked roster
         const getFilteredOptions = () => {
             const query = compareSearchInput.value.trim().toLowerCase();
             const selectedSet = new Set(state.selectedAppIds);
@@ -1090,6 +1144,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 .map((entry) => entry.meta);
         };
 
+        // populates the live search suggestion list
         const renderSearchResults = () => {
             if (!dataStore.ready || !state.searchOpen) {
                 compareSuggestions.hidden = true;
@@ -1128,6 +1183,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 .join("");
         };
 
+        // displays swatches for each selected line color
         const renderLegend = (selectedSeries) => {
             if (!selectedSeries.length) {
                 compareLegend.innerHTML = "";
@@ -1146,6 +1202,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 .join("");
         };
 
+        // fills the stat cards beneath the chart
         const renderSummary = (config) => {
             if (!config) {
                 compareSummary.innerHTML = `
@@ -1199,6 +1256,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 .join("");
         };
 
+        // lists user-defined timeline markers with remove buttons
         const renderMarkerList = () => {
             if (!state.manualMarkers.length) {
                 compareMarkerList.innerHTML = `
@@ -1226,12 +1284,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 .join("");
         };
 
+        // enables or disables reset buttons based on state
         const syncCompareControls = () => {
             renderModeButtons();
             compareResetButton.disabled =
                 !dataStore.ready || state.selectedAppIds.length < COMPARE_MIN_SELECTION || isFullWindow();
         };
 
+        // renders the main comparison chart including markers and zoom brushes
         const drawCompareChart = (config) => {
             if (!config) {
                 drawCanvasPlaceholder(
@@ -1460,6 +1520,7 @@ document.addEventListener("DOMContentLoaded", () => {
             };
         };
 
+        // draws the mini overview chart plus draggable window
         const drawOverviewChart = (config) => {
             if (!config) {
                 drawCanvasPlaceholder(
@@ -1550,6 +1611,7 @@ document.addEventListener("DOMContentLoaded", () => {
             };
         };
 
+        // central render function that syncs ui, charts, and status text
         const renderCompare = (statusOverride = null) => {
             renderModeButtons();
             renderSelectedChips();
@@ -1613,6 +1675,7 @@ document.addEventListener("DOMContentLoaded", () => {
             );
         };
 
+        // adds a game to the comparison list with guard rails
         const addSelection = (appId) => {
             if (!dataStore.ready) {
                 return;
@@ -1644,11 +1707,13 @@ document.addEventListener("DOMContentLoaded", () => {
             compareSearchInput.focus();
         };
 
+        // removes a selected app id and re-renders
         const removeSelection = (appId) => {
             state.selectedAppIds = state.selectedAppIds.filter((selectedAppId) => selectedAppId !== appId);
             renderCompare();
         };
 
+        // snaps the zoom window back to the entire dataset
         const resetVisibleWindow = (statusMessage = "Zoom reset to the full 91-day timeline.") => {
             if (!dataStore.ready) {
                 return;
@@ -1664,6 +1729,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         };
 
+        // finds the closest plotted point for tooltip hover
         const findNearestPoint = (point) => {
             if (!state.currentConfig || !state.mainRenderMeta || state.zoomDrag) {
                 return null;
@@ -1686,6 +1752,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return nearest;
         };
 
+        // positions and fills the tooltip for whichever point is hovered
         const showCompareTooltip = (nearestPoint, x, y) => {
             const detailLine =
                 state.metricMode === "indexed"
@@ -1706,6 +1773,7 @@ document.addEventListener("DOMContentLoaded", () => {
             compareTooltip.hidden = false;
         };
 
+        // finalizes the drag-to-zoom interaction into a new visible window
         const applyZoomWindow = () => {
             if (!state.zoomDrag || !state.mainRenderMeta || !state.visibleWindow) {
                 state.zoomDrag = null;
@@ -1746,6 +1814,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         };
 
+        // determines whether the overview brush should drag or resize
         const getBrushModeAtPoint = (x) => {
             if (!state.overviewRenderMeta) {
                 return null;
@@ -1767,6 +1836,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return null;
         };
 
+        // updates the zoom window while the overview brush is dragged
         const updateBrushWindowFromPoint = (clientX, clientY) => {
             if (!state.brushDrag || !state.overviewRenderMeta || !state.visibleWindow) {
                 return;
