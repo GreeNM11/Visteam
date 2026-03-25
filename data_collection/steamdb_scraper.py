@@ -102,20 +102,39 @@ async def batch_process(input_csv, appid_single, output_dir, cdp_url):
     
     appids = []
     if appid_single:
-        appids = [appid_single]
+        appids = [str(appid_single)]
     elif os.path.exists(input_csv):
         with open(input_csv, mode='r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            appids = [row['appid'] for row in reader if row.get('appid')]
+            for row in reader:
+                # Find key case-insensitively (handles 'appid', 'AppID', 'Appid', etc.)
+                aid_key = next((k for k in row.keys() if k.lower() == 'appid'), None)
+                if aid_key and row[aid_key]:
+                    appids.append(str(row[aid_key]))
     
     if not appids:
         print("No AppIDs found.")
         return
 
-    print(f"Found {len(appids)} AppIDs. Starting batch...")
+    # Check existing files to avoid repeats
+    existing_files = {f.replace(".csv", "") for f in os.listdir(output_dir) if f.endswith(".csv")}
+    remaining_appids = [aid for aid in appids if aid not in existing_files]
     
-    for i, aid in enumerate(appids):
-        print(f"\nProgress: {i+1}/{len(appids)}")
+    total_original = len(appids)
+    total_remaining = len(remaining_appids)
+    
+    print(f"Total AppIDs in list: {total_original}")
+    print(f"Already downloaded:  {len(appids) - total_remaining}")
+    print(f"Remaining to process: {total_remaining}")
+    
+    if not remaining_appids:
+        print("All AppIDs already processed. Exiting.")
+        return
+
+    print("\nStarting batch for remaining chips...")
+    
+    for i, aid in enumerate(remaining_appids):
+        print(f"\nProgress: {i+1}/{total_remaining} (Overall: {total_original - total_remaining + i + 1}/{total_original})")
         success = await download_steamdb_csv(aid, output_dir, cdp_url=cdp_url)
         if not success:
             print(f"  Failed at {aid}. Stopping.")
