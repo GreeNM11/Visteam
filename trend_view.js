@@ -33,9 +33,17 @@ export function initTrendModule(shared) {
     }
 
     const ctx = trendCanvas.getContext("2d");
+    const LINE_HIT_WIDTH = 10;
     let trendTween = null;
     let animationState = null;
     let lastRenderedCoords = null;
+    let lastRenderedSeries = [];
+    const hoverState = {
+        activeKey: null,
+        intensityByKey: {},
+        tween: null,
+        plotBounds: null
+    };
 
     const showTrendStatus = (message, isError = false) => {
         trendStatusLabel.textContent = message;
@@ -44,6 +52,142 @@ export function initTrendModule(shared) {
 
     const hideTooltip = () => {
         trendTooltip.hidden = true;
+    };
+
+    const colorToRgba = (hexColor, alpha) => {
+        const color = String(hexColor || "").replace("#", "");
+        const normalized = color.length === 3
+            ? color.split("").map((character) => character + character).join("")
+            : color;
+        const red = Number.parseInt(normalized.slice(0, 2), 16) || 255;
+        const green = Number.parseInt(normalized.slice(2, 4), 16) || 255;
+        const blue = Number.parseInt(normalized.slice(4, 6), 16) || 255;
+        return `rgba(${red}, ${green}, ${blue}, ${clamp(alpha, 0, 1)})`;
+    };
+
+    const redrawCurrentFrame = () => {
+        if (!animationState) {
+            return;
+        }
+        drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+    };
+
+    const setHoveredSeries = (seriesKey) => {
+        if (hoverState.activeKey === seriesKey) {
+            return;
+        }
+
+        hoverState.activeKey = seriesKey;
+
+        if (hoverState.tween) {
+            hoverState.tween.kill();
+            hoverState.tween = null;
+        }
+
+        const toValues = {};
+        Object.keys(hoverState.intensityByKey).forEach((key) => {
+            toValues[key] = seriesKey && key === seriesKey ? 1 : 0;
+        });
+
+        hoverState.tween = gsap.to(hoverState.intensityByKey, {
+            ...toValues,
+            duration: 0.1,
+            ease: "power2.out",
+            onUpdate: redrawCurrentFrame
+        });
+    };
+
+    const getLineDistanceAtCursorX = (coords, mouseX, mouseY) => {
+        if (!coords || coords.length < 2) {
+            return Number.POSITIVE_INFINITY;
+        }
+
+        const first = coords[0];
+        const last = coords[coords.length - 1];
+        if (mouseX < first.x - 10 || mouseX > last.x + 10) {
+            return Number.POSITIVE_INFINITY;
+        }
+
+        for (let index = 0; index < coords.length - 1; index += 1) {
+            const start = coords[index];
+            const end = coords[index + 1];
+            const minX = Math.min(start.x, end.x);
+            const maxX = Math.max(start.x, end.x);
+
+            if (mouseX >= minX && mouseX <= maxX) {
+                const segmentWidth = Math.max(end.x - start.x, 1e-6);
+                const ratio = clamp((mouseX - start.x) / segmentWidth, 0, 1);
+                const yAtCursor = start.y + (end.y - start.y) * ratio;
+                return Math.abs(mouseY - yAtCursor);
+            }
+        }
+
+        const edgeDistance = Math.min(
+            Math.hypot(mouseX - first.x, mouseY - first.y),
+            Math.hypot(mouseX - last.x, mouseY - last.y)
+        );
+        return edgeDistance;
+    };
+
+    const findLineHoverTarget = (mouseX, mouseY) => {
+        if (!lastRenderedSeries.length) {
+            return null;
+        }
+
+        let bestSeries = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        lastRenderedSeries.forEach((entry) => {
+            if (!entry?.path || !entry?.coords?.length) {
+                return;
+            }
+
+            ctx.save();
+            ctx.lineWidth = entry.hitWidth;
+            const isOnStroke = ctx.isPointInStroke(entry.path, mouseX, mouseY);
+            ctx.restore();
+
+            if (!isOnStroke) {
+                return;
+            }
+
+            const distance = getLineDistanceAtCursorX(entry.coords, mouseX, mouseY);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestSeries = entry.series;
+            }
+        });
+
+        return bestSeries;
+    };
+
+    const findNearestPointInSeries = (series, mouseX, mouseY) => {
+        if (!lastRenderedCoords || !series) {
+            return null;
+        }
+
+        const coords = lastRenderedCoords.find((bucket) => bucket.length && bucket[0].series === series);
+        if (!coords || !coords.length) {
+            return null;
+        }
+
+        let nearest = null;
+
+        for (let index = 0; index < coords.length; index += 1) {
+            const point = coords[index];
+            const dx = point.x - mouseX;
+            const dy = point.y - mouseY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (!nearest || distance < nearest.distance) {
+                nearest = { ...point, distance };
+            }
+        }
+
+        if (!nearest) {
+            return null;
+        }
+
+        return nearest;
     };
 
     const buildDatasetsFromTelemetry = (count, scope, startDate, endDate) => {
@@ -94,6 +238,12 @@ export function initTrendModule(shared) {
         const padding = 50;
         const width = trendCanvas.width - padding * 2;
         const height = trendCanvas.height - padding * 2;
+        hoverState.plotBounds = {
+            left: padding,
+            right: padding + width,
+            top: padding,
+            bottom: padding + height
+        };
         const clampedProgress = clamp(visibleProgress, 1, timeline.length);
         const fullPointCount = Math.max(1, Math.floor(clampedProgress));
         const nextPointRatio = clampedProgress - fullPointCount;
@@ -153,11 +303,25 @@ export function initTrendModule(shared) {
         }
         ctx.restore();
 
+        datasets.forEach((series) => {
+            const key = series.meta?.appId || series.name;
+            if (typeof hoverState.intensityByKey[key] !== "number") {
+                hoverState.intensityByKey[key] = 0;
+            }
+        });
+        const hasActiveHover = Object.values(hoverState.intensityByKey).some((value) => value > 0.02);
+        const renderedSeries = [];
+
         datasets.forEach((series, seriesIndex) => {
             const coordBucket = [];
-            ctx.beginPath();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = COLOR_PALETTE[seriesIndex % COLOR_PALETTE.length];
+            const seriesKey = series.meta?.appId || series.name;
+            const emphasis = hoverState.intensityByKey[seriesKey] || 0;
+            const alpha = hasActiveHover ? 0.08 + emphasis * 0.92 : 1;
+            const path = new Path2D();
+            ctx.lineWidth = 1.8 + emphasis * 3.6;
+            ctx.strokeStyle = colorToRgba(COLOR_PALETTE[seriesIndex % COLOR_PALETTE.length], alpha);
+            ctx.shadowBlur = emphasis > 0 ? 10 + emphasis * 10 : 0;
+            ctx.shadowColor = colorToRgba(COLOR_PALETTE[seriesIndex % COLOR_PALETTE.length], 0.8);
 
             series.points.slice(0, fullPointCount).forEach((value, pointIndex) => {
                 const x = padding + stepX * pointIndex;
@@ -173,9 +337,9 @@ export function initTrendModule(shared) {
                 });
 
                 if (pointIndex === 0) {
-                    ctx.moveTo(x, y);
+                    path.moveTo(x, y);
                 } else {
-                    ctx.lineTo(x, y);
+                    path.lineTo(x, y);
                 }
             });
 
@@ -196,11 +360,18 @@ export function initTrendModule(shared) {
                     date: timeline[toIndex],
                     series
                 });
-                ctx.lineTo(x, y);
+                path.lineTo(x, y);
             }
 
-            ctx.stroke();
+            ctx.stroke(path);
+            ctx.shadowBlur = 0;
             series.coords = coordBucket;
+            renderedSeries.push({
+                series,
+                coords: coordBucket,
+                path,
+                hitWidth: Math.max(ctx.lineWidth + LINE_HIT_WIDTH, 10)
+            });
         });
 
         ctx.fillStyle = "rgba(231, 236, 245, 0.9)";
@@ -211,6 +382,7 @@ export function initTrendModule(shared) {
             : "";
         ctx.fillText(`Day ending ${progressLabel}`, padding, padding - 15);
         lastRenderedCoords = datasets.map((series) => series.coords || []);
+        lastRenderedSeries = renderedSeries;
     };
 
     const setPauseButtonState = (mode) => {
@@ -238,10 +410,17 @@ export function initTrendModule(shared) {
             trendTween.kill();
             trendTween = null;
         }
+        if (hoverState.tween) {
+            hoverState.tween.kill();
+            hoverState.tween = null;
+        }
 
         if (resetState) {
             animationState = null;
             lastRenderedCoords = null;
+            lastRenderedSeries = [];
+            hoverState.activeKey = null;
+            hoverState.intensityByKey = {};
             setPauseButtonState("idle");
             hideTooltip();
         }
@@ -265,7 +444,12 @@ export function initTrendModule(shared) {
                 drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
             },
             onComplete: () => {
-                stopAnimation(true);
+                trendTween = null;
+                if (animationState) {
+                    animationState.visibleProgress = animationState.timeline.length;
+                    drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+                }
+                setPauseButtonState("idle");
             }
         });
         setPauseButtonState("running");
@@ -361,7 +545,10 @@ export function initTrendModule(shared) {
         hideTooltip();
     });
 
-    trendCanvas.addEventListener("mouseleave", hideTooltip);
+    trendCanvas.addEventListener("mouseleave", () => {
+        hideTooltip();
+        setHoveredSeries(null);
+    });
 
     trendCanvas.addEventListener("mousemove", (event) => {
         if (!animationState || !lastRenderedCoords) {
@@ -370,19 +557,22 @@ export function initTrendModule(shared) {
         }
 
         const { x: mouseX, y: mouseY } = getRelativeCanvasPoint(trendCanvas, event.clientX, event.clientY);
-        let nearest = null;
-        const threshold = 12;
+        const plot = hoverState.plotBounds;
+        if (plot && (mouseX < plot.left || mouseX > plot.right || mouseY < plot.top || mouseY > plot.bottom)) {
+            setHoveredSeries(null);
+            hideTooltip();
+            return;
+        }
 
-        lastRenderedCoords.forEach((coords) => {
-            coords.forEach((point) => {
-                const dx = point.x - mouseX;
-                const dy = point.y - mouseY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance <= threshold && (!nearest || distance < nearest.distance)) {
-                    nearest = { ...point, distance };
-                }
-            });
-        });
+        const hoveredSeries = findLineHoverTarget(mouseX, mouseY);
+        setHoveredSeries(hoveredSeries?.meta?.appId || hoveredSeries?.name || null);
+
+        if (!hoveredSeries) {
+            hideTooltip();
+            return;
+        }
+
+        const nearest = findNearestPointInSeries(hoveredSeries, mouseX, mouseY);
 
         if (!nearest) {
             hideTooltip();

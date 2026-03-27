@@ -833,10 +833,6 @@ body {
     border-color: var(--accent);
 }
 
-.canvas__cell:hover {
-    border-color: var(--accent);
-}
-
 .canvas__cell--primary {
     grid-column: span 2;
     min-height: 280px;
