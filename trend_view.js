@@ -1,3 +1,5 @@
+import { gsap } from "https://cdn.jsdelivr.net/npm/gsap@3.12.5/+esm";
+
 export function initTrendModule(shared) {
     const {
         dataStore,
@@ -31,7 +33,7 @@ export function initTrendModule(shared) {
     }
 
     const ctx = trendCanvas.getContext("2d");
-    let animationTimer = null;
+    let trendTween = null;
     let animationState = null;
     let lastRenderedCoords = null;
 
@@ -87,11 +89,15 @@ export function initTrendModule(shared) {
         return { timeline, datasets };
     };
 
-    const drawChart = (timeline, datasets, visiblePoints) => {
+    const drawChart = (timeline, datasets, visibleProgress) => {
         ctx.clearRect(0, 0, trendCanvas.width, trendCanvas.height);
         const padding = 50;
         const width = trendCanvas.width - padding * 2;
         const height = trendCanvas.height - padding * 2;
+        const clampedProgress = clamp(visibleProgress, 1, timeline.length);
+        const fullPointCount = Math.max(1, Math.floor(clampedProgress));
+        const nextPointRatio = clampedProgress - fullPointCount;
+        const visiblePointCount = Math.min(Math.ceil(clampedProgress), timeline.length);
 
         ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
         ctx.lineWidth = 1;
@@ -101,7 +107,7 @@ export function initTrendModule(shared) {
         ctx.lineTo(padding + width, padding + height);
         ctx.stroke();
 
-        const allPoints = datasets.flatMap((series) => series.points.slice(0, visiblePoints));
+        const allPoints = datasets.flatMap((series) => series.points.slice(0, visiblePointCount));
         const maxValue = Math.max(...allPoints, 1);
         const minValue = Math.min(...allPoints, 0);
         const range = Math.max(maxValue - minValue, 1);
@@ -153,7 +159,7 @@ export function initTrendModule(shared) {
             ctx.lineWidth = 2;
             ctx.strokeStyle = COLOR_PALETTE[seriesIndex % COLOR_PALETTE.length];
 
-            series.points.slice(0, visiblePoints).forEach((value, pointIndex) => {
+            series.points.slice(0, fullPointCount).forEach((value, pointIndex) => {
                 const x = padding + stepX * pointIndex;
                 const normalized = (value - minValue) / range;
                 const y = padding + (1 - normalized) * height;
@@ -173,14 +179,35 @@ export function initTrendModule(shared) {
                 }
             });
 
+            if (nextPointRatio > 0 && fullPointCount < series.points.length) {
+                const fromIndex = fullPointCount - 1;
+                const toIndex = fullPointCount;
+                const fromValue = series.points[fromIndex];
+                const toValue = series.points[toIndex];
+                const interpolatedValue = fromValue + (toValue - fromValue) * nextPointRatio;
+                const x = padding + stepX * clampedProgress;
+                const normalized = (interpolatedValue - minValue) / range;
+                const y = padding + (1 - normalized) * height;
+
+                coordBucket.push({
+                    x,
+                    y,
+                    value: interpolatedValue,
+                    date: timeline[toIndex],
+                    series
+                });
+                ctx.lineTo(x, y);
+            }
+
             ctx.stroke();
             series.coords = coordBucket;
         });
 
         ctx.fillStyle = "rgba(231, 236, 245, 0.9)";
         ctx.font = "600 13px 'Space Grotesk', sans-serif";
-        const progressLabel = timeline[Math.min(visiblePoints - 1, timeline.length - 1)]
-            ? toDateKey(timeline[Math.min(visiblePoints - 1, timeline.length - 1)])
+        const labelIndex = Math.min(Math.floor(clampedProgress) - 1, timeline.length - 1);
+        const progressLabel = timeline[labelIndex]
+            ? toDateKey(timeline[labelIndex])
             : "";
         ctx.fillText(`Day ending ${progressLabel}`, padding, padding - 15);
         lastRenderedCoords = datasets.map((series) => series.coords || []);
@@ -207,9 +234,9 @@ export function initTrendModule(shared) {
     };
 
     const stopAnimation = (resetState = false) => {
-        if (animationTimer) {
-            clearInterval(animationTimer);
-            animationTimer = null;
+        if (trendTween) {
+            trendTween.kill();
+            trendTween = null;
         }
 
         if (resetState) {
@@ -220,53 +247,50 @@ export function initTrendModule(shared) {
         }
     };
 
-    const advanceFrame = () => {
-        if (!animationState) {
-            stopAnimation(true);
-            return;
-        }
-
-        animationState.visiblePoints += 1;
-        if (animationState.visiblePoints > animationState.timeline.length) {
-            stopAnimation(true);
-            return;
-        }
-
-        drawChart(animationState.timeline, animationState.datasets, animationState.visiblePoints);
-    };
-
     const startLoop = () => {
         if (!animationState) {
             return;
         }
 
         stopAnimation();
-        drawChart(animationState.timeline, animationState.datasets, animationState.visiblePoints);
-        animationTimer = setInterval(advanceFrame, TREND_FRAME_INTERVAL);
+        drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+        trendTween = gsap.to(animationState, {
+            visibleProgress: animationState.timeline.length,
+            duration: Math.max(animationState.timeline.length * TREND_FRAME_INTERVAL, 800) / 1000,
+            ease: "none",
+            onUpdate: () => {
+                if (!animationState) {
+                    return;
+                }
+                drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+            },
+            onComplete: () => {
+                stopAnimation(true);
+            }
+        });
         setPauseButtonState("running");
     };
 
     const pauseAnimation = () => {
-        if (!animationTimer) {
+        if (!trendTween) {
             return;
         }
 
-        clearInterval(animationTimer);
-        animationTimer = null;
+        trendTween.pause();
         setPauseButtonState("paused");
     };
 
     const resumeAnimation = () => {
-        if (!animationState || animationTimer) {
+        if (!animationState || !trendTween) {
             return;
         }
 
-        if (animationState.visiblePoints >= animationState.timeline.length) {
+        if (animationState.visibleProgress >= animationState.timeline.length) {
             setPauseButtonState("idle");
             return;
         }
 
-        animationTimer = setInterval(advanceFrame, TREND_FRAME_INTERVAL);
+        trendTween.play();
         setPauseButtonState("running");
     };
 
@@ -308,7 +332,7 @@ export function initTrendModule(shared) {
         animationState = {
             timeline: config.timeline,
             datasets: config.datasets,
-            visiblePoints: 1
+            visibleProgress: 1
         };
 
         showTrendStatus(

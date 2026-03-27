@@ -344,14 +344,29 @@ const drawCanvasPlaceholder = (ctx, canvas, title, detail) => {
 };
 
 const loadTelemetry = async () => {
-    const [topResponse, dailyResponse] = await Promise.all([
-        fetch("data/top500.csv"),
-        fetch("data/daily_peaks_top500.csv")
-    ]);
+    const fetchFirstAvailableCsv = async (relativePaths) => {
+        for (const relativePath of relativePaths) {
+            const url = new URL(relativePath, import.meta.url).href;
+            try {
+                const response = await fetch(url);
+                if (response.ok) {
+                    return response;
+                }
+            } catch (error) {
+                console.warn(`CSV fetch failed for ${url}`, error);
+            }
+        }
 
-    if (!topResponse.ok || !dailyResponse.ok) {
-        throw new Error("Failed to fetch telemetry CSV files.");
-    }
+        throw new Error(`Failed to fetch telemetry CSV from paths: ${relativePaths.join(", ")}`);
+    };
+
+    const [topResponse, dailyResponse] = await Promise.all([
+        fetchFirstAvailableCsv(["./data/top500.csv", "./data/nonsteamdb_csvs/top500.csv"]),
+        fetchFirstAvailableCsv([
+            "./data/daily_peaks_top500.csv",
+            "./data/nonsteamdb_csvs/daily_peaks_top500.csv"
+        ])
+    ]);
 
     const [topText, dailyText] = await Promise.all([topResponse.text(), dailyResponse.text()]);
     const metadataResult = hydrateMetadata(topText);
