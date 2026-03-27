@@ -206,6 +206,10 @@ body {
     gap: 1rem;
 }
 
+.workspace.is-focus-view .signal-band {
+    display: none;
+}
+
 .signal-band article {
     border: 1px dashed var(--stroke);
     border-radius: 16px;
