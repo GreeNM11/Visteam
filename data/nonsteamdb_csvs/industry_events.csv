@@ -1,0 +1,44 @@
+date,event_type,title,url
+2022-12-08,Industry,The Game Awards 2022,https://thegameawards.com/
+2023-12-07,Industry,The Game Awards 2023,https://thegameawards.com/
+2024-12-12,Industry,The Game Awards 2024,https://thegameawards.com/
+2025-12-11,Industry,The Game Awards 2025,https://thegameawards.com/
+2022-06-09,Industry,Summer Game Fest 2022,https://www.summergamefest.com/
+2023-06-08,Industry,Summer Game Fest 2023,https://www.summergamefest.com/
+2024-06-07,Industry,Summer Game Fest 2024,https://www.summergamefest.com/
+2025-06-06,Industry,Summer Game Fest 2025,https://www.summergamefest.com/
+2022-08-23,Industry,Gamescom ONL 2022,https://www.gamescom.global/
+2023-08-22,Industry,Gamescom ONL 2023,https://www.gamescom.global/
+2024-08-20,Industry,Gamescom ONL 2024,https://www.gamescom.global/
+2025-08-19,Industry,Gamescom ONL 2025,https://www.gamescom.global/
+2022-03-21,Industry,GDC 2022,https://gdconf.com/
+2023-03-20,Industry,GDC 2023,https://gdconf.com/
+2024-03-18,Industry,GDC 2024,https://gdconf.com/
+2025-03-17,Industry,GDC 2025,https://gdconf.com/
+2022-09-15,Industry,Tokyo Game Show 2022,https://tgs.cesa.or.jp/
+2023-09-21,Industry,Tokyo Game Show 2023,https://tgs.cesa.or.jp/
+2024-09-26,Industry,Tokyo Game Show 2024,https://tgs.cesa.or.jp/
+2025-09-25,Industry,Tokyo Game Show 2025,https://tgs.cesa.or.jp/
+2022-04-21,Industry,PAX East 2022,https://east.paxsite.com/
+2022-09-02,Industry,PAX West 2022,https://west.paxsite.com/
+2023-03-23,Industry,PAX East 2023,
+2023-09-01,Industry,PAX West 2023,
+2024-03-21,Industry,PAX East 2024,
+2024-08-30,Industry,PAX West 2024,
+2025-05-08,Industry,PAX East 2025,
+2025-08-29,Industry,PAX West 2025,
+2023-03-16,SteamSale,Steam Spring Sale 2023,
+2023-06-29,SteamSale,Steam Summer Sale 2023,
+2023-11-21,SteamSale,Steam Autumn Sale 2023,
+2023-12-21,SteamSale,Steam Winter Sale 2023,
+2024-03-14,SteamSale,Steam Spring Sale 2024,
+2024-06-27,SteamSale,Steam Summer Sale 2024,
+2024-11-27,SteamSale,Steam Autumn Sale 2024,
+2024-12-19,SteamSale,Steam Winter Sale 2024,
+2025-03-13,SteamSale,Steam Spring Sale 2025,
+2025-06-26,SteamSale,Steam Summer Sale 2025,
+2025-09-29,SteamSale,Steam Autumn Sale 2025,
+2025-12-18,SteamSale,Steam Winter Sale 2025,
+2025-02-24,SteamNextFest,Steam Next Fest February 2025,
+2025-06-09,SteamNextFest,Steam Next Fest June 2025,
+2025-10-13,SteamNextFest,Steam Next Fest October 2025,

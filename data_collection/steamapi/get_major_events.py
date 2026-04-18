@@ -4,17 +4,24 @@ import csv
 import time
 import os
 import argparse
+import re
 from datetime import datetime
+from dateutil import parser as date_parser
 
 NEWS_URL = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/"
 STORE_URL = "https://store.steampowered.com/api/appdetails"
 
 MAJOR_KEYWORDS = [
-    "major update", "season", "expansion", "v1.", "v2.", "v3.", "release", 
-    "mega update", "content update", "acts", "chapter", "anniversary"
+    "major update", "season", "expansion", "1.0", "2.0", "3.0", "release", 
+    "mega update", "content update", "acts", "chapter", "anniversary", "released", "launch", "dlc"
 ]
 
-MINOR_KEYWORDS = ["hotfix", "bug fix", "small patch", "minor update", "stability"]
+MINOR_KEYWORDS = ["hotfix", "bug fix", "small patch", "minor update", "stability", "maintenance"]
+
+EXCLUDE_KEYWORDS = [
+    "reveal", "trailer", "announc", "coming soon", "sneak peek", 
+    "roadmap", "upcoming", "wishlist", "behind the scenes", "preview", "demo", "beta", "alpha", "bundle", "road"
+]
 
 class SteamEventCollector:
     def __init__(self, output_file="data/game_events.csv"):
@@ -32,26 +39,70 @@ class SteamEventCollector:
                 data = response.json()
                 if str(appid) in data and data[str(appid)]["success"]:
                     release_info = data[str(appid)]["data"].get("release_date", {})
-                    return release_info.get("date")
+                    raw_date = release_info.get("date")
+                    if raw_date:
+                        return date_parser.parse(raw_date).strftime("%Y-%m-%d")
         except Exception as e:
             print(f"  Error fetching release date for {appid}: {e}")
         return None
 
     def is_major_event(self, item):
-        """Heuristic to determine if a news item is a major event."""
+        """Heuristic to determine if a news item is a major event and not just an announcement."""
         title = item.get("title", "").lower()
         tags = item.get("tags", [])
         if tags is None: tags = []
         
-        if any(tag in ["patchnotes", "major_update", "mod_tradeable"] for tag in tags):
-            if not any(kw in title for kw in ["hotfix", "bug fix"]):
-                return True
+        if any(kw in title for kw in EXCLUDE_KEYWORDS):
+            return False
+
+        if any(kw in title for kw in MINOR_KEYWORDS) or " patch" in title or " fix" in title:
+            return False
+
+        versions = re.findall(r'[vV]?(\d+\.[\d\.]+)', title)
+        has_major_ver = False
+        has_minor_ver = False
+        for v in versions:
+            clean_v = v.rstrip('.')
+            dots = clean_v.count('.')
+            if dots == 1:
+                has_major_ver = True
+            elif dots > 1:
+                has_minor_ver = True
         
+        if has_minor_ver:
+            if not any(kw in title for kw in ["expansion", "season", "major update"]):
+                return False
+
+        if any(tag in ["major_update", "mod_tradeable"] for tag in tags):
+            return True
+            
+        if has_major_ver:
+            return True
+
         if any(kw in title for kw in MAJOR_KEYWORDS):
-             if not any(kw in title for kw in MINOR_KEYWORDS):
-                return True
+            return True
                 
         return False
+
+    def filter_by_interval(self, events, min_days=21):
+        """Filters events to ensure a minimum gap between them for the same AppID."""
+        if not events:
+            return []
+            
+        sorted_events = sorted(events, key=lambda x: x['date'])
+        filtered = []
+        
+        if sorted_events:
+            filtered.append(sorted_events[0])
+            last_date = datetime.strptime(sorted_events[0]['date'], "%Y-%m-%d")
+            
+            for i in range(1, len(sorted_events)):
+                current_date = datetime.strptime(sorted_events[i]['date'], "%Y-%m-%d")
+                if (current_date - last_date).days >= min_days:
+                    filtered.append(sorted_events[i])
+                    last_date = current_date
+                    
+        return filtered
 
     def get_major_updates(self, appid, count=100):
         """Fetches and filters news items for major updates."""
@@ -101,7 +152,9 @@ class SteamEventCollector:
         updates = self.get_major_updates(appid)
         all_events.extend(updates)
         
-        return all_events
+        filtered_events = self.filter_by_interval(all_events)
+        
+        return filtered_events
 
     def run(self, input_csv):
         if not os.path.exists(input_csv):
@@ -134,8 +187,8 @@ class SteamEventCollector:
 
 def main():
     parser = argparse.ArgumentParser(description="Steam Major Event Collector")
-    parser.add_argument("--input", type=str, default="data_collection/filtered_appids.csv", help="Input CSV with appids")
-    parser.add_argument("--output", type=str, default="data/game_events.csv", help="Output CSV path")
+    parser.add_argument("--input", type=str, default="data/nonsteamdb_csvs/filtered_appids.csv", help="Input CSV with appids")
+    parser.add_argument("--output", type=str, default="data/refined_game_events.csv", help="Output CSV path")
     parser.add_argument("--appid", type=int, help="Run for a single appid")
     
     args = parser.parse_args()
