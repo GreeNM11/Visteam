@@ -1,5 +1,6 @@
 import { initTrendModule } from "./trend_view.js";
 import { initCompareModule } from "./compare_view.js";
+import { initClusterModule } from "./cluster_view.js";
 
 const COLOR_PALETTE = [
     "#64e9ff",
@@ -68,6 +69,11 @@ const escapeHtml = (value = "") =>
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+const splitCommaList = (value = "") =>
+    String(value)
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
 const padNumber = (value) => String(value).padStart(2, "0");
 const createCalendarDate = (value) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
@@ -544,6 +550,7 @@ const createSharedContext = () => ({
     utils: {
         clamp,
         escapeHtml,
+        splitCommaList,
         padNumber,
         createCalendarDate,
         cloneCalendarDate,
@@ -583,4 +590,5 @@ document.addEventListener("DOMContentLoaded", () => {
     const context = createSharedContext();
     initTrendModule(context);
     initCompareModule(context);
+    initClusterModule(context);
 });
