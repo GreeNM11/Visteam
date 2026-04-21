@@ -543,6 +543,7 @@ export function initCompareModule(shared) {
         const markerBandTop = 54;
         const markerLabelHeight = 18;
         const markerRowGap = 8;
+        const markerHitZones = [];
 
         mainCtx.fillStyle = "rgba(6, 10, 16, 0.72)";
         mainCtx.fillRect(0, 0, compareCanvas.width, compareCanvas.height);
@@ -632,6 +633,19 @@ export function initCompareModule(shared) {
             mainCtx.textAlign = "center";
             mainCtx.textBaseline = "middle";
             mainCtx.fillText(labelText, labelLeft + labelWidth / 2, labelY + markerLabelHeight / 2);
+
+            markerHitZones.push({
+                marker,
+                x,
+                lineTop: plot.top,
+                lineBottom: plot.bottom,
+                labelRect: {
+                    left: labelLeft,
+                    right: labelLeft + labelWidth,
+                    top: labelY,
+                    bottom: labelY + markerLabelHeight
+                }
+            });
         });
 
         config.datasets.forEach((series) => {
@@ -715,7 +729,8 @@ export function initCompareModule(shared) {
             plot,
             stepX,
             timeline: config.timeline,
-            datasets: config.datasets
+            datasets: config.datasets,
+            markerHitZones
         };
     };
 
@@ -963,6 +978,25 @@ export function initCompareModule(shared) {
         return series.coords[index] || null;
     };
 
+    const findHoveredMarker = (point) => {
+        if (!state.mainRenderMeta?.markerHitZones?.length) {
+            return null;
+        }
+
+        for (const zone of state.mainRenderMeta.markerHitZones) {
+            const withinLabel =
+                point.x >= zone.labelRect.left &&
+                point.x <= zone.labelRect.right &&
+                point.y >= zone.labelRect.top &&
+                point.y <= zone.labelRect.bottom;
+            if (withinLabel) {
+                return zone.marker;
+            }
+        }
+
+        return null;
+    };
+
     const showCompareTooltip = (nearestPoint, x, y) => {
         const detailLine =
             state.metricMode === "indexed"
@@ -977,6 +1011,22 @@ export function initCompareModule(shared) {
             <span>${escapeHtml(detailLine)}</span>
             <span>${escapeHtml(getCompanyLabel(nearestPoint.series.meta))}</span>
             <span>${escapeHtml(longDateFormatter.format(nearestPoint.date))}</span>
+        `;
+        compareTooltip.style.left = `${x + 18}px`;
+        compareTooltip.style.top = `${y - 12}px`;
+        compareTooltip.hidden = false;
+    };
+
+    const showMarkerTooltip = (marker, x, y) => {
+        const appName = dataStore.metadata.get(marker.appId)?.name || marker.appId;
+        const eventDate = createCalendarDate(marker.dateKey);
+        const dateLabel = eventDate ? longDateFormatter.format(eventDate) : marker.dateKey;
+
+        compareTooltip.innerHTML = `
+            <strong>${escapeHtml(marker.title || marker.label || "Major Event")}</strong>
+            <span>${escapeHtml(appName)} • ${escapeHtml(marker.eventType || "Update")}</span>
+            <span>${escapeHtml(dateLabel)}</span>
+            ${marker.url ? `<span>${escapeHtml(marker.url)}</span>` : ""}
         `;
         compareTooltip.style.left = `${x + 18}px`;
         compareTooltip.style.top = `${y - 12}px`;
@@ -1228,7 +1278,28 @@ export function initCompareModule(shared) {
         }
 
         const point = getRelativeCanvasPoint(compareCanvas, event.clientX, event.clientY);
-        if (!state.mainRenderMeta || !isPointInPlot(point, state.mainRenderMeta.plot)) {
+        if (!state.mainRenderMeta) {
+            if (state.hoverPoint) {
+                state.hoverPoint = null;
+                drawCompareChart(state.currentConfig);
+            }
+            hideCompareTooltip();
+            return;
+        }
+
+        const hoveredMarker = findHoveredMarker(point);
+        if (hoveredMarker) {
+            if (state.hoverPoint) {
+                state.hoverPoint = null;
+                drawCompareChart(state.currentConfig);
+            }
+            const tooltipX = point.scaleX ? point.x / point.scaleX : point.x;
+            const tooltipY = point.scaleY ? point.y / point.scaleY : point.y;
+            showMarkerTooltip(hoveredMarker, tooltipX, tooltipY);
+            return;
+        }
+
+        if (!isPointInPlot(point, state.mainRenderMeta.plot)) {
             if (state.hoverPoint) {
                 state.hoverPoint = null;
                 drawCompareChart(state.currentConfig);
