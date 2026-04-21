@@ -56,6 +56,7 @@ const dataStore = {
     dateKeys: [],
     indexByDateKey: new Map(),
     pointsById: new Map(),
+    majorEventsByAppId: new Map(),
     ready: false
 };
 
@@ -267,6 +268,75 @@ const hydrateDailySeries = (text) => {
     const dateRange = minDate && maxDate ? { start: minDate, end: maxDate } : null;
     return { seriesById, dateRange };
 };
+const hydrateMajorEvents = (text) => {
+    const rows = parseCSVRows(text);
+    if (!rows.length) {
+        return new Map();
+    }
+
+    const normalizeHeader = (header) => String(header || "").replace(/^\ufeff/, "").trim().toLowerCase();
+    const headers = rows[0].map((header) => normalizeHeader(header));
+    const findIndex = (label) => headers.findIndex((header) => header === label);
+    const appIdIndex = findIndex("appid");
+    const dateIndex = findIndex("date");
+    const typeIndex = findIndex("event_type");
+    const titleIndex = findIndex("title");
+    const urlIndex = findIndex("url");
+
+    if (appIdIndex === -1 || dateIndex === -1) {
+        return new Map();
+    }
+
+    const eventsByAppId = new Map();
+
+    const parseEventDate = (rawDate) => {
+        const direct = createCalendarDate(rawDate);
+        if (direct) {
+            return direct;
+        }
+        const fallback = new Date(rawDate);
+        if (Number.isNaN(fallback.getTime())) {
+            return null;
+        }
+        return new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate(), 12, 0, 0, 0);
+    };
+
+    rows.slice(1).forEach((cells) => {
+        const appId = String(cells[appIdIndex] || "").trim();
+        const rawDate = String(cells[dateIndex] || "").trim();
+        if (!appId || !rawDate) {
+            return;
+        }
+
+        const parsedDate = parseEventDate(rawDate);
+        if (!parsedDate) {
+            return;
+        }
+
+        const eventType = String(cells[typeIndex] || "Update").trim() || "Update";
+        const title = String(cells[titleIndex] || eventType).trim() || eventType;
+        const url = String(cells[urlIndex] || "").trim();
+        const entry = {
+            appId,
+            date: parsedDate,
+            dateKey: toDateKey(parsedDate),
+            eventType,
+            title,
+            url
+        };
+
+        if (!eventsByAppId.has(appId)) {
+            eventsByAppId.set(appId, []);
+        }
+        eventsByAppId.get(appId).push(entry);
+    });
+
+    eventsByAppId.forEach((events) => {
+        events.sort((left, right) => left.dateKey.localeCompare(right.dateKey) || left.title.localeCompare(right.title));
+    });
+
+    return eventsByAppId;
+};
 const buildTimeline = (startDate, endDate) => {
     const timeline = [];
     let cursor = cloneCalendarDate(startDate);
@@ -377,6 +447,20 @@ const loadTelemetry = async () => {
     ]);
 
     const [topText, dailyText] = await Promise.all([topResponse.text(), dailyResponse.text()]);
+    let majorEventsByAppId = new Map();
+
+    try {
+        const eventsResponse = await fetchFirstAvailableCsv([
+            "./data/refined_game_events.csv",
+            "./data/game_events.csv",
+            "./data/nonsteamdb_csvs/refined_game_events.csv",
+            "./data/nonsteamdb_csvs/game_events.csv"
+        ]);
+        const eventsText = await eventsResponse.text();
+        majorEventsByAppId = hydrateMajorEvents(eventsText);
+    } catch (error) {
+        console.warn("Major events CSV fetch failed", error);
+    }
     const metadataResult = hydrateMetadata(topText);
     const dailyResult = hydrateDailySeries(dailyText);
 
@@ -388,6 +472,7 @@ const loadTelemetry = async () => {
     dataStore.dateKeys = dataStore.fullTimeline.map((date) => toDateKey(date));
     dataStore.indexByDateKey = new Map(dataStore.dateKeys.map((dateKey, index) => [dateKey, index]));
     dataStore.pointsById = new Map();
+    dataStore.majorEventsByAppId = majorEventsByAppId;
 
     dataStore.rankedAppIds.forEach((appId) => {
         const dayMap = dataStore.seriesById.get(appId);

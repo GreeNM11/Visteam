@@ -155,24 +155,15 @@
                                     <button class="trend-button compare-reset" id="compareReset" type="button" disabled>Reset Zoom</button>
                                 </section>
 
-                                <form class="compare-panel compare-marker-form" id="compareMarkerForm">
+                                <section class="compare-panel compare-marker-form">
                                     <div class="compare-panel__heading">
-                                        <span>Manual Event Marker</span>
-                                        <small>Flag a patch, launch, or crossover and read the chart around it.</small>
+                                        <span>Major Event Markers</span>
+                                        <small>Pull releases and major updates from the event feed.</small>
                                     </div>
                                     <div class="compare-marker-form__fields">
-                                        <input type="date" id="compareMarkerDate" aria-label="Marker date" required>
-                                        <input
-                                            type="text"
-                                            id="compareMarkerLabel"
-                                            placeholder="Patch, season, collab..."
-                                            aria-label="Marker label"
-                                            maxlength="40"
-                                            required
-                                        >
-                                        <button class="trend-button" type="submit">Add Marker</button>
+                                        <button class="trend-button" id="compareMajorEventsButton" type="button">Add Major Events</button>
                                     </div>
-                                </form>
+                                </section>
                             </div>
 
                             <div class="compare-meta-row">
@@ -200,7 +191,7 @@
                             <div class="compare-summary-grid" id="compareSummary"></div>
                         </article>
                         <article class="canvas__cell">
-                            <header>Manual Event Markers</header>
+                            <header>Major Event Markers</header>
                             <div class="compare-marker-list" id="compareMarkerList"></div>
                         </article>
                     </div>

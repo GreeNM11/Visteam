@@ -653,7 +653,7 @@ body {
 
 .compare-marker-form__fields {
     display: grid;
-    grid-template-columns: minmax(170px, 210px) minmax(0, 1fr) auto;
+    grid-template-columns: 1fr;
     gap: 0.75rem;
     align-items: center;
 }
@@ -814,6 +814,12 @@ body {
 
 .compare-marker-item strong {
     display: block;
+}
+
+.compare-marker-item__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .compare-marker-item p {

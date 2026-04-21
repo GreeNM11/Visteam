@@ -33,9 +33,7 @@ export function initCompareModule(shared) {
     const compareSelected = document.getElementById("compareSelected");
     const compareLegend = document.getElementById("compareLegend");
     const compareSummary = document.getElementById("compareSummary");
-    const compareMarkerForm = document.getElementById("compareMarkerForm");
-    const compareMarkerDateInput = document.getElementById("compareMarkerDate");
-    const compareMarkerLabelInput = document.getElementById("compareMarkerLabel");
+    const compareMajorEventsButton = document.getElementById("compareMajorEventsButton");
     const compareMarkerList = document.getElementById("compareMarkerList");
     const compareResetButton = document.getElementById("compareReset");
     const compareModeToggle = document.getElementById("compareModeToggle");
@@ -50,9 +48,7 @@ export function initCompareModule(shared) {
         !compareSelected ||
         !compareLegend ||
         !compareSummary ||
-        !compareMarkerForm ||
-        !compareMarkerDateInput ||
-        !compareMarkerLabelInput ||
+        !compareMajorEventsButton ||
         !compareMarkerList ||
         !compareResetButton ||
         !compareModeToggle
@@ -69,7 +65,8 @@ export function initCompareModule(shared) {
         selectedAppIds: [],
         metricMode: "raw",
         visibleWindow: null,
-        manualMarkers: [],
+        markers: [],
+        markerSource: "none",
         searchOpen: false,
         hoverPoint: null,
         zoomDrag: null,
@@ -195,10 +192,18 @@ export function initCompareModule(shared) {
             };
         });
 
-        const visibleMarkers = state.manualMarkers
+        const colorByAppId = new Map(selectedSeries.map((series) => [series.appId, series.color]));
+        const visibleMarkers = state.markers
             .map((marker) => {
                 const globalIndex = dataStore.indexByDateKey.get(marker.dateKey);
-                return typeof globalIndex === "number" ? { ...marker, globalIndex } : null;
+                if (typeof globalIndex !== "number") {
+                    return null;
+                }
+                return {
+                    ...marker,
+                    globalIndex,
+                    color: colorByAppId.get(marker.appId) || "#f7c948"
+                };
             })
             .filter(Boolean)
             .filter(
@@ -214,6 +219,54 @@ export function initCompareModule(shared) {
             window: { ...state.visibleWindow },
             fullTimeline: dataStore.fullTimeline
         };
+    };
+
+    const truncateLabel = (value, maxLength = 32) => {
+        const label = String(value || "").trim();
+        if (label.length <= maxLength) {
+            return label;
+        }
+        return `${label.slice(0, Math.max(maxLength - 3, 0))}...`;
+    };
+
+    const buildMajorEventMarkers = () => {
+        if (!dataStore.majorEventsByAppId || !state.selectedAppIds.length || !dataStore.dateRange) {
+            return [];
+        }
+
+        const markerMap = new Map();
+
+        state.selectedAppIds.forEach((appId) => {
+            const events = dataStore.majorEventsByAppId.get(appId) || [];
+            events.forEach((event) => {
+                if (
+                    getUtcDayValue(event.date) < getUtcDayValue(dataStore.dateRange.start) ||
+                    getUtcDayValue(event.date) > getUtcDayValue(dataStore.dateRange.end)
+                ) {
+                    return;
+                }
+
+                const label = truncateLabel(event.title || event.eventType || "Major Event");
+                const key = `${appId}-${event.dateKey}-${label}`;
+                if (markerMap.has(key)) {
+                    return;
+                }
+
+                markerMap.set(key, {
+                    id: key,
+                    dateKey: event.dateKey,
+                    label,
+                    title: event.title || label,
+                    eventType: event.eventType || "Update",
+                    url: event.url || "",
+                    appId
+                });
+            });
+        });
+
+        return Array.from(markerMap.values()).sort(
+            (left, right) => left.dateKey.localeCompare(right.dateKey) || left.title.localeCompare(right.title)
+        );
     };
 
     const renderModeButtons = () => {
@@ -402,19 +455,25 @@ export function initCompareModule(shared) {
     };
 
     const renderMarkerList = () => {
-        if (!state.manualMarkers.length) {
+        if (!state.markers.length) {
             compareMarkerList.innerHTML = `
-                <p class="compare-empty-note">Add dated markers for patches, launches, or crossover events.</p>
+                <p class="compare-empty-note">Add major events to line up releases and updates on the chart.</p>
             `;
             return;
         }
 
-        compareMarkerList.innerHTML = state.manualMarkers
+        compareMarkerList.innerHTML = state.markers
             .map(
                 (marker) => `
                     <article class="compare-marker-item">
                         <div>
-                            <strong>${escapeHtml(marker.label)}</strong>
+                            <div class="compare-marker-item__title">
+                                <span class="compare-legend__swatch" style="--swatch:${escapeHtml(marker.color || "#f7c948")}"></span>
+                                <strong>${escapeHtml(marker.title || marker.label)}</strong>
+                            </div>
+                            <p>${escapeHtml(
+                                `${dataStore.metadata.get(marker.appId)?.name || marker.appId} • ${marker.eventType}`
+                            )}</p>
                             <p>${escapeHtml(longDateFormatter.format(createCalendarDate(marker.dateKey)))}</p>
                         </div>
                         <button class="compare-marker-item__remove" type="button" data-remove-marker="${escapeHtml(
@@ -432,6 +491,8 @@ export function initCompareModule(shared) {
         renderModeButtons();
         compareResetButton.disabled =
             !dataStore.ready || state.selectedAppIds.length < COMPARE_MIN_SELECTION || isFullWindow();
+        compareMajorEventsButton.disabled =
+            !dataStore.ready || state.selectedAppIds.length < COMPARE_MIN_SELECTION;
     };
 
     const drawCompareChart = (config) => {
@@ -551,7 +612,8 @@ export function initCompareModule(shared) {
 
             mainCtx.save();
             mainCtx.setLineDash([6, 6]);
-            mainCtx.strokeStyle = "rgba(247, 201, 72, 0.85)";
+            const markerColor = marker.color || "#f7c948";
+            mainCtx.strokeStyle = markerColor;
             mainCtx.beginPath();
             mainCtx.moveTo(x, plot.top);
             mainCtx.lineTo(x, plot.bottom);
@@ -564,9 +626,9 @@ export function initCompareModule(shared) {
             const labelLeft = clamp(x - labelWidth / 2, plot.left, plot.right - labelWidth);
             mainCtx.fillStyle = "rgba(247, 201, 72, 0.18)";
             mainCtx.fillRect(labelLeft, labelY, labelWidth, markerLabelHeight);
-            mainCtx.strokeStyle = "rgba(247, 201, 72, 0.7)";
+            mainCtx.strokeStyle = marker.color || "#f7c948";
             mainCtx.strokeRect(labelLeft, labelY, labelWidth, markerLabelHeight);
-            mainCtx.fillStyle = "#f7c948";
+            mainCtx.fillStyle = marker.color || "#f7c948";
             mainCtx.textAlign = "center";
             mainCtx.textBaseline = "middle";
             mainCtx.fillText(labelText, labelLeft + labelWidth / 2, labelY + markerLabelHeight / 2);
@@ -832,6 +894,9 @@ export function initCompareModule(shared) {
         }
 
         state.selectedAppIds.push(appId);
+        if (state.markerSource === "major") {
+            state.markers = buildMajorEventMarkers();
+        }
         compareSearchInput.value = "";
         state.searchOpen = true;
         renderCompare({
@@ -843,6 +908,9 @@ export function initCompareModule(shared) {
 
     const removeSelection = (appId) => {
         state.selectedAppIds = state.selectedAppIds.filter((selectedAppId) => selectedAppId !== appId);
+        if (state.markerSource === "major") {
+            state.markers = buildMajorEventMarkers();
+        }
         renderCompare();
     };
 
@@ -1057,9 +1125,58 @@ export function initCompareModule(shared) {
             return;
         }
 
-        state.manualMarkers = state.manualMarkers.filter((marker) => marker.id !== button.dataset.removeMarker);
+        state.markers = state.markers.filter((marker) => marker.id !== button.dataset.removeMarker);
+        if (state.markerSource === "major") {
+            state.markerSource = "custom";
+        }
         renderCompare({
             message: "Marker removed from the timeline.",
+            isError: false
+        });
+    });
+
+    compareMajorEventsButton.addEventListener("click", () => {
+        if (!dataStore.ready) {
+            renderCompare({
+                message: "Telemetry is still loading, so markers cannot be added yet.",
+                isError: true
+            });
+            return;
+        }
+
+        if (!dataStore.majorEventsByAppId || dataStore.majorEventsByAppId.size === 0) {
+            renderCompare({
+                message: "Major events data did not load. Check that refined_game_events.csv is available.",
+                isError: true
+            });
+            return;
+        }
+
+        if (state.selectedAppIds.length < COMPARE_MIN_SELECTION) {
+            renderCompare({
+                message: `Select ${COMPARE_MIN_SELECTION}-${COMPARE_MAX_SELECTION} games before adding major events.`,
+                isError: true
+            });
+            return;
+        }
+
+        const markers = buildMajorEventMarkers();
+        if (!markers.length) {
+            renderCompare({
+                message: "No major events matched the selected games or date range.",
+                isError: true
+            });
+            return;
+        }
+
+        const colorByAppId = new Map(getSelectedSeries().map((series) => [series.appId, series.color]));
+        state.markerSource = "major";
+        state.markers = markers.map((marker) => ({
+            ...marker,
+            color: colorByAppId.get(marker.appId) || "#f7c948"
+        }));
+        renderCompare({
+            message: `Added ${markers.length} major events to the timeline.`,
             isError: false
         });
     });
@@ -1084,55 +1201,6 @@ export function initCompareModule(shared) {
         resetVisibleWindow();
     });
 
-    compareMarkerForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-
-        if (!dataStore.ready) {
-            renderCompare({
-                message: "Telemetry is still loading, so markers cannot be added yet.",
-                isError: true
-            });
-            return;
-        }
-
-        const markerDate = createCalendarDate(compareMarkerDateInput.value);
-        const markerLabel = compareMarkerLabelInput.value.trim();
-
-        if (!markerDate || !markerLabel) {
-            renderCompare({
-                message: "Add both a marker date and a short label.",
-                isError: true
-            });
-            return;
-        }
-
-        if (
-            getUtcDayValue(markerDate) < getUtcDayValue(dataStore.dateRange.start) ||
-            getUtcDayValue(markerDate) > getUtcDayValue(dataStore.dateRange.end)
-        ) {
-            renderCompare({
-                message: `Markers must stay between ${toDateKey(dataStore.dateRange.start)} and ${toDateKey(
-                    dataStore.dateRange.end
-                )}.`,
-                isError: true
-            });
-            return;
-        }
-
-        const marker = {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            dateKey: toDateKey(markerDate),
-            label: markerLabel
-        };
-        state.manualMarkers.push(marker);
-        state.manualMarkers.sort((left, right) => left.dateKey.localeCompare(right.dateKey));
-        compareMarkerLabelInput.value = "";
-
-        renderCompare({
-            message: `Marker added for ${marker.label} on ${marker.dateKey}.`,
-            isError: false
-        });
-    });
 
     compareCanvas.addEventListener("mousedown", (event) => {
         if (!state.currentConfig || !state.mainRenderMeta) {
@@ -1329,10 +1397,6 @@ export function initCompareModule(shared) {
                 });
                 return;
             }
-
-            compareMarkerDateInput.min = toDateKey(dataStore.dateRange.start);
-            compareMarkerDateInput.max = toDateKey(dataStore.dateRange.end);
-            compareMarkerDateInput.value = toDateKey(dataStore.dateRange.end);
             state.visibleWindow = {
                 start: 0,
                 end: dataStore.fullTimeline.length - 1
