@@ -315,9 +315,17 @@ const getIndexForDate = (date) =>
     clamp(daysBetween(dataStore.dateRange.start, date), 0, dataStore.fullTimeline.length - 1);
 const getRelativeCanvasPoint = (canvas, clientX, clientY) => {
     const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width ? canvas.width / rect.width : 1;
+    const scaleY = rect.height ? canvas.height / rect.height : 1;
+    const cssX = clientX - rect.left;
+    const cssY = clientY - rect.top;
     return {
-        x: clientX - rect.left,
-        y: clientY - rect.top,
+        x: cssX * scaleX,
+        y: cssY * scaleY,
+        cssX,
+        cssY,
+        scaleX,
+        scaleY,
         rect
     };
 };

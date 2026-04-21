@@ -437,6 +437,11 @@ body {
     transform: translate(-50%, -100%);
 }
 
+.trend-tooltip[hidden],
+.compare-tooltip[hidden] {
+    display: none;
+}
+
 .trend-tooltip strong {
     font-size: 0.8rem;
     letter-spacing: 0.05em;

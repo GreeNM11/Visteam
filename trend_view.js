@@ -556,7 +556,12 @@ export function initTrendModule(shared) {
             return;
         }
 
-        const { x: mouseX, y: mouseY } = getRelativeCanvasPoint(trendCanvas, event.clientX, event.clientY);
+        const {
+            x: mouseX,
+            y: mouseY,
+            cssX: tooltipX,
+            cssY: tooltipY
+        } = getRelativeCanvasPoint(trendCanvas, event.clientX, event.clientY);
         const plot = hoverState.plotBounds;
         if (plot && (mouseX < plot.left || mouseX > plot.right || mouseY < plot.top || mouseY > plot.bottom)) {
             setHoveredSeries(null);
@@ -586,8 +591,8 @@ export function initTrendModule(shared) {
             <span>${escapeHtml(nearest.series.category)}</span>
             <span>${escapeHtml(toDateKey(nearest.date))}</span>
         `;
-        trendTooltip.style.left = `${mouseX + 15}px`;
-        trendTooltip.style.top = `${mouseY - 10}px`;
+        trendTooltip.style.left = `${tooltipX + 15}px`;
+        trendTooltip.style.top = `${tooltipY - 10}px`;
         trendTooltip.hidden = false;
     });
 

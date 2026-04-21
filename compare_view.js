@@ -63,6 +63,7 @@ export function initCompareModule(shared) {
     const mainCtx = compareCanvas.getContext("2d");
     const overviewCtx = compareOverviewCanvas.getContext("2d");
     const compareSearchShell = compareSearchInput.closest(".compare-search");
+    const compareChartShell = compareCanvas.closest(".compare-chart");
 
     const state = {
         selectedAppIds: [],
@@ -573,6 +574,7 @@ export function initCompareModule(shared) {
 
         config.datasets.forEach((series) => {
             const coords = [];
+            const path = new Path2D();
             mainCtx.beginPath();
             mainCtx.lineWidth = 2.4;
             mainCtx.strokeStyle = series.color;
@@ -594,13 +596,17 @@ export function initCompareModule(shared) {
 
                 if (index === 0) {
                     mainCtx.moveTo(x, y);
+                    path.moveTo(x, y);
                 } else {
                     mainCtx.lineTo(x, y);
+                    path.lineTo(x, y);
                 }
             });
 
             mainCtx.stroke();
             series.coords = coords;
+            series.path = path;
+            series.hitWidth = 10;
         });
 
         if (state.hoverPoint) {
@@ -855,26 +861,38 @@ export function initCompareModule(shared) {
         });
     };
 
-    const findNearestPoint = (point) => {
+    const findHoveredSeries = (point) => {
         if (!state.currentConfig || !state.mainRenderMeta || state.zoomDrag) {
             return null;
         }
 
-        let nearest = null;
-        const threshold = 14;
+        for (let index = state.currentConfig.datasets.length - 1; index >= 0; index -= 1) {
+            const series = state.currentConfig.datasets[index];
+            if (!series?.path) {
+                continue;
+            }
 
-        state.currentConfig.datasets.forEach((series) => {
-            series.coords.forEach((coord) => {
-                const dx = coord.x - point.x;
-                const dy = coord.y - point.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance <= threshold && (!nearest || distance < nearest.distance)) {
-                    nearest = { ...coord, distance };
-                }
-            });
-        });
+            mainCtx.save();
+            mainCtx.lineWidth = series.hitWidth || 3;
+            const isOnStroke = mainCtx.isPointInStroke(series.path, point.x, point.y);
+            mainCtx.restore();
 
-        return nearest;
+            if (isOnStroke) {
+                return series;
+            }
+        }
+
+        return null;
+    };
+
+    const findNearestPointInSeries = (series, point) => {
+        if (!state.mainRenderMeta || !series?.coords?.length) {
+            return null;
+        }
+
+        const { plot, stepX } = state.mainRenderMeta;
+        const index = clamp(Math.round((point.x - plot.left) / Math.max(stepX, 1e-6)), 0, series.coords.length - 1);
+        return series.coords[index] || null;
     };
 
     const showCompareTooltip = (nearestPoint, x, y) => {
@@ -1151,7 +1169,17 @@ export function initCompareModule(shared) {
             return;
         }
 
-        const nearest = findNearestPoint(point);
+        const hoveredSeries = findHoveredSeries(point);
+        if (!hoveredSeries) {
+            if (state.hoverPoint) {
+                state.hoverPoint = null;
+                drawCompareChart(state.currentConfig);
+            }
+            hideCompareTooltip();
+            return;
+        }
+
+        const nearest = findNearestPointInSeries(hoveredSeries, point);
         if (!nearest) {
             if (state.hoverPoint) {
                 state.hoverPoint = null;
@@ -1171,10 +1199,39 @@ export function initCompareModule(shared) {
             drawCompareChart(state.currentConfig);
         }
 
-        showCompareTooltip(nearest, point.x, point.y);
+        const tooltipX = point.scaleX ? nearest.x / point.scaleX : nearest.x;
+        const tooltipY = point.scaleY ? nearest.y / point.scaleY : nearest.y;
+        showCompareTooltip(nearest, tooltipX, tooltipY);
     });
 
     compareCanvas.addEventListener("mouseleave", () => {
+        if (state.zoomDrag) {
+            return;
+        }
+        if (state.hoverPoint) {
+            state.hoverPoint = null;
+            drawCompareChart(state.currentConfig);
+        }
+        hideCompareTooltip();
+    });
+
+    if (compareChartShell) {
+        compareChartShell.addEventListener("mouseleave", () => {
+            if (state.zoomDrag) {
+                return;
+            }
+            if (state.hoverPoint) {
+                state.hoverPoint = null;
+                drawCompareChart(state.currentConfig);
+            }
+            hideCompareTooltip();
+        });
+    }
+
+    document.addEventListener("pointermove", (event) => {
+        if (!compareChartShell || compareChartShell.contains(event.target)) {
+            return;
+        }
         if (state.zoomDrag) {
             return;
         }
