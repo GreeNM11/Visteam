@@ -685,18 +685,15 @@ export function initClusterModule(shared) {
         const bounds = getBubbleBounds();
 
         return games.map((game) => {
-            const targetPoints = game.matchedGenres
+            // Use the first matched dataset genre as the primary cluster target.
+            const primaryGenre = game.matchedGenres[0] || null;
+            const primaryAttractor = attractorByGenre.get(primaryGenre);
+            const fallbackAttractor = game.matchedGenres
                 .map((genre) => attractorByGenre.get(genre))
-                .filter(Boolean);
-            const centroid = targetPoints.reduce(
-                (accumulator, point) => ({
-                    x: accumulator.x + point.x,
-                    y: accumulator.y + point.y
-                }),
-                { x: 0, y: 0 }
-            );
-            const targetX = centroid.x / Math.max(targetPoints.length, 1);
-            const targetY = centroid.y / Math.max(targetPoints.length, 1);
+                .find(Boolean);
+            const resolvedAttractor = primaryAttractor || fallbackAttractor || { x: CLUSTER_WIDTH / 2, y: CLUSTER_HEIGHT / 2 };
+            const targetX = resolvedAttractor.x;
+            const targetY = resolvedAttractor.y;
             const radius = state.radiusScale(Math.max(1, game.currentPlayers));
             const cachedNode = state.nodeCache.get(game.appId) || {
                 appId: game.appId,
@@ -719,6 +716,7 @@ export function initClusterModule(shared) {
 
             Object.assign(cachedNode, {
                 ...game,
+                primaryGenre,
                 radius,
                 targetX,
                 targetY
