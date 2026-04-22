@@ -4,6 +4,7 @@ export function initTrendModule(shared) {
     const {
         dataStore,
         telemetryPromise,
+        trendSync,
         constants: { COLOR_PALETTE, TREND_FRAME_INTERVAL },
         utils: {
             clamp,
@@ -17,7 +18,8 @@ export function initTrendModule(shared) {
             getRelativeCanvasPoint,
             shortDateFormatter,
             toDateKey,
-            cloneCalendarDate
+            cloneCalendarDate,
+            drawCanvasPlaceholder
         }
     } = shared;
 
@@ -27,8 +29,27 @@ export function initTrendModule(shared) {
     const trendControls = document.querySelector(".trend-controls");
     const trendTooltip = document.getElementById("trendTooltip");
     const trendStatusLabel = document.getElementById("trendStatus");
+    const topCountSelect = document.getElementById("trendTopCount");
+    const scopeSelect = document.getElementById("trendPublisherScope");
+    const startInput = document.getElementById("trendStartDate");
+    const endInput = document.getElementById("trendEndDate");
+    const speedSelect = document.getElementById("trendSpeed");
+    const trendsPanel = document.querySelector('.canvas__content[data-view="trends"]');
 
-    if (!trendStartButton || !trendCanvas || !trendControls || !trendPauseButton || !trendTooltip || !trendStatusLabel) {
+    if (
+        !trendStartButton ||
+        !trendCanvas ||
+        !trendControls ||
+        !trendPauseButton ||
+        !trendTooltip ||
+        !trendStatusLabel ||
+        !topCountSelect ||
+        !scopeSelect ||
+        !startInput ||
+        !endInput ||
+        !speedSelect ||
+        !trendsPanel
+    ) {
         return;
     }
 
@@ -36,8 +57,10 @@ export function initTrendModule(shared) {
     const LINE_HIT_WIDTH = 10;
     let trendTween = null;
     let animationState = null;
+    let previewConfig = null;
     let lastRenderedCoords = null;
     let lastRenderedSeries = [];
+    let lastPublishedFrameIndex = -1;
     const hoverState = {
         activeKey: null,
         intensityByKey: {},
@@ -50,15 +73,37 @@ export function initTrendModule(shared) {
         trendStatusLabel.classList.toggle("is-error", Boolean(isError));
     };
 
+    const isTrendsViewActive = () => !trendsPanel.hidden;
+
+    const isEditableTarget = (target) =>
+        Boolean(
+            target instanceof HTMLElement &&
+                (target.isContentEditable ||
+                    target.closest("input, textarea, select, button, [contenteditable='true']"))
+        );
+
     const hideTooltip = () => {
         trendTooltip.hidden = true;
     };
 
+    const formatPlaybackRateLabel = (value = Number(speedSelect.value) || 1) => {
+        const selectedValue = Number(speedSelect.value) || 1;
+        const selectedLabel = speedSelect.selectedOptions?.[0]?.textContent?.trim();
+        if (Math.abs(selectedValue - value) < 1e-6 && selectedLabel) {
+            return selectedLabel;
+        }
+        return `${value}x`;
+    };
+
     const colorToRgba = (hexColor, alpha) => {
         const color = String(hexColor || "").replace("#", "");
-        const normalized = color.length === 3
-            ? color.split("").map((character) => character + character).join("")
-            : color;
+        const normalized =
+            color.length === 3
+                ? color
+                      .split("")
+                      .map((character) => character + character)
+                      .join("")
+                : color;
         const red = Number.parseInt(normalized.slice(0, 2), 16) || 255;
         const green = Number.parseInt(normalized.slice(2, 4), 16) || 255;
         const blue = Number.parseInt(normalized.slice(4, 6), 16) || 255;
@@ -122,11 +167,10 @@ export function initTrendModule(shared) {
             }
         }
 
-        const edgeDistance = Math.min(
+        return Math.min(
             Math.hypot(mouseX - first.x, mouseY - first.y),
             Math.hypot(mouseX - last.x, mouseY - last.y)
         );
-        return edgeDistance;
     };
 
     const findLineHoverTarget = (mouseX, mouseY) => {
@@ -183,10 +227,6 @@ export function initTrendModule(shared) {
             }
         }
 
-        if (!nearest) {
-            return null;
-        }
-
         return nearest;
     };
 
@@ -230,7 +270,11 @@ export function initTrendModule(shared) {
             return null;
         }
 
-        return { timeline, datasets };
+        return {
+            range,
+            timeline,
+            datasets
+        };
     };
 
     const drawChart = (timeline, datasets, visibleProgress) => {
@@ -377,9 +421,7 @@ export function initTrendModule(shared) {
         ctx.fillStyle = "rgba(231, 236, 245, 0.9)";
         ctx.font = "600 13px 'Space Grotesk', sans-serif";
         const labelIndex = Math.min(Math.floor(clampedProgress) - 1, timeline.length - 1);
-        const progressLabel = timeline[labelIndex]
-            ? toDateKey(timeline[labelIndex])
-            : "";
+        const progressLabel = timeline[labelIndex] ? toDateKey(timeline[labelIndex]) : "";
         ctx.fillText(`Day ending ${progressLabel}`, padding, padding - 15);
         lastRenderedCoords = datasets.map((series) => series.coords || []);
         lastRenderedSeries = renderedSeries;
@@ -421,47 +463,239 @@ export function initTrendModule(shared) {
             lastRenderedSeries = [];
             hoverState.activeKey = null;
             hoverState.intensityByKey = {};
+            lastPublishedFrameIndex = -1;
             setPauseButtonState("idle");
             hideTooltip();
         }
     };
 
+    const collectSelection = () => {
+        const fallbackStart = dataStore.dateRange?.start || cloneCalendarDate(new Date());
+        const fallbackEnd = dataStore.dateRange?.end || cloneCalendarDate(new Date());
+        const desiredStart = parseDateInput(startInput.value || toDateKey(fallbackStart), fallbackStart);
+        const desiredEnd = parseDateInput(endInput.value || toDateKey(fallbackEnd), fallbackEnd);
+        const range = clampToDataDomain(desiredStart, desiredEnd);
+        const requestedTopN = Number(topCountSelect.value) || 10;
+        const topN = requestedTopN === 20 ? 20 : requestedTopN === 15 ? 15 : 10;
+        const playbackRate = Math.max(Number(speedSelect.value) || 1, 0.25);
+
+        return {
+            topN,
+            scope: scopeSelect.value || "all",
+            startDate: range.start,
+            endDate: range.end,
+            playbackRate
+        };
+    };
+
+    const syncSelection = (selection) => {
+        trendSync.syncSelection({
+            topN: selection.topN,
+            scope: selection.scope,
+            startDate: selection.startDate,
+            endDate: selection.endDate,
+            playbackRate: selection.playbackRate
+        });
+    };
+
+    const renderNoDataState = (selection, message) => {
+        previewConfig = null;
+        animationState = null;
+        lastPublishedFrameIndex = -1;
+        drawCanvasPlaceholder(ctx, trendCanvas, "No Trend Data", message);
+        trendStartButton.disabled = true;
+        setPauseButtonState("idle");
+        showTrendStatus(message, true);
+        syncSelection(selection);
+        trendSync.resetPlayback({
+            timeline: [],
+            frameIndex: 0,
+            currentDate: null
+        });
+    };
+
+    const renderPreview = (config, selection) => {
+        previewConfig = {
+            ...config,
+            selection
+        };
+        animationState = {
+            timeline: config.timeline,
+            datasets: config.datasets,
+            visibleProgress: 1,
+            selection
+        };
+        drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+        trendStartButton.disabled = false;
+        lastPublishedFrameIndex = 0;
+        syncSelection(selection);
+        trendSync.resetPlayback({
+            timeline: config.timeline,
+            frameIndex: 0,
+            currentDate: config.timeline[0] || null
+        });
+        showTrendStatus(
+            `Previewing ${config.datasets.length} titles from ${toDateKey(config.timeline[0])} to ${toDateKey(
+                config.timeline[config.timeline.length - 1]
+            )}. Press Start to animate at ${formatPlaybackRateLabel(selection.playbackRate)}.`
+        );
+    };
+
+    const refreshPreview = () => {
+        stopAnimation(true);
+        hideTooltip();
+        setHoveredSeries(null);
+
+        if (!dataStore.ready) {
+            drawCanvasPlaceholder(
+                ctx,
+                trendCanvas,
+                "Telemetry Syncing",
+                "The timeline will light up once the CSV telemetry is ready."
+            );
+            trendStartButton.disabled = true;
+            showTrendStatus("Loading live telemetry...");
+            return;
+        }
+
+        const selection = collectSelection();
+        startInput.value = toDateKey(selection.startDate);
+        endInput.value = toDateKey(selection.endDate);
+        const config = buildDatasetsFromTelemetry(
+            selection.topN,
+            selection.scope,
+            selection.startDate,
+            selection.endDate
+        );
+
+        if (!config) {
+            renderNoDataState(selection, "No telemetry is available for that filter window.");
+            return;
+        }
+
+        renderPreview(config, selection);
+    };
+
+    const startOrRestartAnimation = () => {
+        if (!dataStore.ready) {
+            showTrendStatus("Telemetry still syncing. Hold tight.", true);
+            return;
+        }
+
+        refreshPreview();
+        if (!previewConfig) {
+            showTrendStatus("No telemetry is available for that filter window.", true);
+            return;
+        }
+
+        startLoop();
+    };
+
     const startLoop = () => {
-        if (!animationState) {
+        if (!previewConfig) {
             return;
         }
 
         stopAnimation();
+        hideTooltip();
+        setHoveredSeries(null);
+
+        animationState = {
+            timeline: previewConfig.timeline,
+            datasets: previewConfig.datasets,
+            visibleProgress: 1,
+            selection: previewConfig.selection
+        };
         drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+
+        const timeline = animationState.timeline;
+        const firstDate = timeline[0] || null;
+        lastPublishedFrameIndex = 0;
+        trendSync.startPlayback({
+            timeline,
+            frameIndex: 0,
+            currentDate: firstDate
+        });
+
         trendTween = gsap.to(animationState, {
-            visibleProgress: animationState.timeline.length,
-            duration: Math.max(animationState.timeline.length * TREND_FRAME_INTERVAL, 800) / 1000,
+            visibleProgress: timeline.length,
+            duration: Math.max(timeline.length * TREND_FRAME_INTERVAL, 800) / 1000,
             ease: "none",
             onUpdate: () => {
                 if (!animationState) {
                     return;
                 }
+
                 drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+                const frameIndex = clamp(
+                    Math.floor(animationState.visibleProgress) - 1,
+                    0,
+                    animationState.timeline.length - 1
+                );
+
+                if (frameIndex !== lastPublishedFrameIndex) {
+                    lastPublishedFrameIndex = frameIndex;
+                    trendSync.syncFrame({
+                        timeline: animationState.timeline,
+                        frameIndex,
+                        currentDate: animationState.timeline[frameIndex] || null
+                    });
+                }
             },
             onComplete: () => {
                 trendTween = null;
-                if (animationState) {
-                    animationState.visibleProgress = animationState.timeline.length;
-                    drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+                if (!animationState) {
+                    return;
                 }
+
+                animationState.visibleProgress = animationState.timeline.length;
+                drawChart(animationState.timeline, animationState.datasets, animationState.visibleProgress);
+
+                const lastIndex = animationState.timeline.length - 1;
+                const finalDate = animationState.timeline[lastIndex] || null;
+                lastPublishedFrameIndex = lastIndex;
+                trendSync.completePlayback({
+                    timeline: animationState.timeline,
+                    frameIndex: lastIndex,
+                    currentDate: finalDate
+                });
                 setPauseButtonState("idle");
+                showTrendStatus(
+                    `Completed ${animationState.datasets.length} titles through ${toDateKey(
+                        animationState.timeline[0]
+                    )} to ${toDateKey(animationState.timeline[lastIndex])}.`
+                );
             }
         });
+
+        trendTween.timeScale(previewConfig.selection.playbackRate);
         setPauseButtonState("running");
+        showTrendStatus(
+            `Animating ${previewConfig.datasets.length} titles from ${toDateKey(timeline[0])} to ${toDateKey(
+                timeline[timeline.length - 1]
+            )} at ${formatPlaybackRateLabel(previewConfig.selection.playbackRate)}.`
+        );
     };
 
     const pauseAnimation = () => {
-        if (!trendTween) {
+        if (!trendTween || !animationState) {
             return;
         }
 
         trendTween.pause();
         setPauseButtonState("paused");
+        const frameIndex = Math.max(lastPublishedFrameIndex, 0);
+        const currentDate = animationState.timeline[frameIndex] || null;
+        trendSync.pausePlayback({
+            timeline: animationState.timeline,
+            frameIndex,
+            currentDate
+        });
+        showTrendStatus(
+            currentDate
+                ? `Paused on ${toDateKey(currentDate)}. Press Resume to continue.`
+                : "Animation paused."
+        );
     };
 
     const resumeAnimation = () => {
@@ -476,56 +710,33 @@ export function initTrendModule(shared) {
 
         trendTween.play();
         setPauseButtonState("running");
+        const frameIndex = Math.max(lastPublishedFrameIndex, 0);
+        const currentDate = animationState.timeline[frameIndex] || animationState.timeline[0] || null;
+        trendSync.resumePlayback({
+            timeline: animationState.timeline,
+            frameIndex,
+            currentDate
+        });
+        showTrendStatus(
+            `Animating ${animationState.datasets.length} titles from ${toDateKey(
+                animationState.timeline[0]
+            )} to ${toDateKey(animationState.timeline[animationState.timeline.length - 1])} at ${formatPlaybackRateLabel(
+                animationState.selection.playbackRate
+            )}.`
+        );
     };
 
     setPauseButtonState("idle");
     showTrendStatus("Loading live telemetry...");
 
+    [topCountSelect, scopeSelect, startInput, endInput, speedSelect].forEach((control) => {
+        control.addEventListener("change", () => {
+            refreshPreview();
+        });
+    });
+
     trendStartButton.addEventListener("click", () => {
-        stopAnimation(true);
-        hideTooltip();
-
-        if (!dataStore.ready) {
-            showTrendStatus("Telemetry still syncing. Hold tight.", true);
-            return;
-        }
-
-        const gameCountSelect = trendControls.querySelector("select[name='game-count']");
-        const scopeSelect = trendControls.querySelector("select[name='publisher-scope']");
-        const startInput = trendControls.querySelector("input[name='start-date']");
-        const endInput = trendControls.querySelector("input[name='end-date']");
-
-        const desiredCount = gameCountSelect?.value === "top15" ? 15 : 10;
-        const fallbackStart = dataStore.dateRange?.start || cloneCalendarDate(new Date());
-        const fallbackEnd = dataStore.dateRange?.end || cloneCalendarDate(new Date());
-        const startDate = parseDateInput(startInput?.value || toDateKey(fallbackStart), fallbackStart);
-        const endDate = parseDateInput(endInput?.value || toDateKey(fallbackEnd), fallbackEnd);
-        const config = buildDatasetsFromTelemetry(
-            desiredCount,
-            scopeSelect?.value || "all",
-            startDate,
-            endDate
-        );
-
-        if (!config) {
-            showTrendStatus("No telemetry for that filter window.", true);
-            setPauseButtonState("idle");
-            return;
-        }
-
-        animationState = {
-            timeline: config.timeline,
-            datasets: config.datasets,
-            visibleProgress: 1
-        };
-
-        showTrendStatus(
-            `Animating ${config.datasets.length} titles from ${toDateKey(config.timeline[0])} to ${toDateKey(
-                config.timeline[config.timeline.length - 1]
-            )}.`
-        );
-
-        startLoop();
+        startOrRestartAnimation();
     });
 
     trendPauseButton.addEventListener("click", () => {
@@ -541,8 +752,44 @@ export function initTrendModule(shared) {
     });
 
     trendCanvas.addEventListener("dblclick", () => {
-        stopAnimation(true);
-        hideTooltip();
+        refreshPreview();
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.defaultPrevented || event.repeat || !isTrendsViewActive() || isEditableTarget(event.target)) {
+            return;
+        }
+
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+            return;
+        }
+
+        if (event.code === "Space") {
+            event.preventDefault();
+
+            if (!dataStore.ready) {
+                showTrendStatus("Telemetry still syncing. Hold tight.", true);
+                return;
+            }
+
+            if (trendPauseButton.dataset.mode === "running") {
+                pauseAnimation();
+                return;
+            }
+
+            if (trendPauseButton.dataset.mode === "paused") {
+                resumeAnimation();
+                return;
+            }
+
+            startOrRestartAnimation();
+            return;
+        }
+
+        if (String(event.key || "").toLowerCase() === "r") {
+            event.preventDefault();
+            startOrRestartAnimation();
+        }
     });
 
     trendCanvas.addEventListener("mouseleave", () => {
@@ -578,7 +825,6 @@ export function initTrendModule(shared) {
         }
 
         const nearest = findNearestPointInSeries(hoveredSeries, mouseX, mouseY);
-
         if (!nearest) {
             hideTooltip();
             return;
@@ -599,25 +845,29 @@ export function initTrendModule(shared) {
     telemetryPromise
         .then(() => {
             if (!dataStore.ready) {
+                drawCanvasPlaceholder(
+                    ctx,
+                    trendCanvas,
+                    "No Trend Data",
+                    "CSV files loaded, but no overlapping telemetry was found."
+                );
+                trendStartButton.disabled = true;
                 showTrendStatus("CSV files loaded but no overlapping telemetry found.", true);
                 return;
             }
 
-            const startInput = trendControls.querySelector("input[name='start-date']");
-            const endInput = trendControls.querySelector("input[name='end-date']");
-            if (startInput) {
-                startInput.value = toDateKey(dataStore.dateRange.start);
-            }
-            if (endInput) {
-                endInput.value = toDateKey(dataStore.dateRange.end);
-            }
-
-            trendStartButton.disabled = false;
-            const dayRange = dataStore.fullTimeline.length;
-            showTrendStatus(`Telemetry synced for ${dataStore.rankedAppIds.length} titles across ${dayRange} days.`);
+            startInput.value = toDateKey(dataStore.dateRange.start);
+            endInput.value = toDateKey(dataStore.dateRange.end);
+            refreshPreview();
         })
         .catch((error) => {
             console.error(error);
+            drawCanvasPlaceholder(
+                ctx,
+                trendCanvas,
+                "Trend Load Failed",
+                "Check the console for telemetry loading details."
+            );
             trendStartButton.disabled = true;
             showTrendStatus("Failed to load CSV telemetry. Check console.", true);
         });

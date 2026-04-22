@@ -11,7 +11,7 @@ import {
 } from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
 const CLUSTER_WIDTH = 960;
-const CLUSTER_HEIGHT = 560;
+const CLUSTER_HEIGHT = 640;
 const MAX_SELECTED_GENRES = 4;
 const ATTRACTOR_COLORS = ["#64e9ff", "#8f7bff", "#f7c948", "#ff8bd2"];
 const COMPANY_COLORS = {
@@ -71,16 +71,56 @@ const getAttractorCoordinates = (genres) => {
     });
 };
 
+const hashString = (value = "") => {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+    }
+    return hash;
+};
+
+const buildLegendSamples = (values) => {
+    if (!values.length) {
+        return [];
+    }
+
+    const sorted = values.slice().sort((left, right) => left - right);
+    const indices = [0, Math.floor((sorted.length - 1) / 2), sorted.length - 1];
+    const seen = new Set();
+
+    return indices
+        .map((index) => sorted[index])
+        .filter((value) => {
+            if (!Number.isFinite(value) || seen.has(value)) {
+                return false;
+            }
+            seen.add(value);
+            return true;
+        });
+};
+
 export function initClusterModule(shared) {
     const {
         dataStore,
         telemetryPromise,
-        utils: { clamp, escapeHtml, splitCommaList, integerFormatter, compactNumberFormatter }
+        trendSync,
+        utils: {
+            clamp,
+            escapeHtml,
+            splitCommaList,
+            integerFormatter,
+            compactNumberFormatter,
+            clampToDataDomain,
+            getIndexForDate,
+            toDateKey
+        }
     } = shared;
 
+    const genreSelect = document.getElementById("clusterGenreSelect");
     const genreChipContainer = document.getElementById("clusterGenreChips");
-    const topCountSelect = document.getElementById("clusterTopCount");
+    const genreHint = document.getElementById("clusterGenreHint");
     const clearButton = document.getElementById("clusterClear");
+    const currentDateLabel = document.getElementById("clusterCurrentDate");
     const statusLabel = document.getElementById("clusterStatus");
     const legend = document.getElementById("clusterLegend");
     const chartShell = document.getElementById("clusterChartShell");
@@ -89,9 +129,11 @@ export function initClusterModule(shared) {
     const emptyState = document.getElementById("clusterEmptyState");
 
     if (
+        !genreSelect ||
         !genreChipContainer ||
-        !topCountSelect ||
+        !genreHint ||
         !clearButton ||
+        !currentDateLabel ||
         !statusLabel ||
         !legend ||
         !chartShell ||
@@ -108,7 +150,6 @@ export function initClusterModule(shared) {
     const attractorLabelLayer = svg.append("g").attr("class", "cluster-attractor-label-layer");
 
     const state = {
-        topN: Number(topCountSelect.value) || 15,
         catalog: [],
         genreStats: new Map(),
         availableGenres: [],
@@ -117,12 +158,20 @@ export function initClusterModule(shared) {
         nodeCache: new Map(),
         simulation: null,
         nodes: [],
-        alphaTimeoutId: null
+        alphaTimeoutId: null,
+        activeAppIds: new Set(),
+        animationConfig: null,
+        configKey: "",
+        shared: trendSync.getState()
     };
 
     const setStatus = (message, isError = false) => {
         statusLabel.textContent = message;
         statusLabel.classList.toggle("is-error", Boolean(isError));
+    };
+
+    const setCurrentDateLabel = (value = "--") => {
+        currentDateLabel.textContent = `Current Day: ${value}`;
     };
 
     const setEmptyState = (message) => {
@@ -139,72 +188,87 @@ export function initClusterModule(shared) {
         bubbleLayer.selectAll(".cluster-bubble").classed("is-hovered", false);
     };
 
-    const formatPeakPlayers = (value) => `${integerFormatter.format(Math.round(value || 0))} peak players`;
+    const formatPlayerCount = (value) => `${integerFormatter.format(Math.round(value || 0))} players`;
     const formatCompactPlayers = (value) => `${compactNumberFormatter.format(value || 0)} players`;
+    const formatPlaybackRate = (value = 1) => `${value}x`;
 
     const syncControls = () => {
         clearButton.disabled = !state.selectedGenres.length;
-        topCountSelect.value = String(state.topN);
+        genreSelect.disabled = !state.availableGenres.length || state.selectedGenres.length >= MAX_SELECTED_GENRES;
+
+        if (!state.availableGenres.length) {
+            genreHint.textContent = "Genre options will appear once the Steam metadata loads.";
+        } else if (state.selectedGenres.length >= MAX_SELECTED_GENRES) {
+            genreHint.textContent = "Maximum of four genres selected. Remove one to add another.";
+        } else {
+            genreHint.textContent = `Select up to four genres. ${state.selectedGenres.length} of ${MAX_SELECTED_GENRES} selected.`;
+        }
     };
 
-    const renderGenreChips = () => {
+    const renderGenrePicker = () => {
         if (!state.availableGenres.length) {
-            genreChipContainer.innerHTML = `
-                <p class="compare-empty-note">Genre filters will appear once the Steam metadata loads.</p>
-            `;
+            genreSelect.innerHTML = `<option value="">Genre list unavailable</option>`;
+            genreSelect.value = "";
             return;
         }
 
         const selectedSet = new Set(state.selectedGenres);
-        const selectionLocked = state.selectedGenres.length >= MAX_SELECTED_GENRES;
-
-        genreChipContainer.innerHTML = state.availableGenres
+        const availableOptions = state.availableGenres
+            .filter((genre) => !selectedSet.has(genre))
             .map((genre) => {
                 const stats = state.genreStats.get(genre) || { count: 0 };
-                const isActive = selectedSet.has(genre);
-                const isDisabled = selectionLocked && !isActive;
+                return `<option value="${escapeHtml(genre)}">${escapeHtml(genre)} (${escapeHtml(
+                    integerFormatter.format(stats.count)
+                )})</option>`;
+            })
+            .join("");
 
+        genreSelect.innerHTML = `
+            <option value="">${state.selectedGenres.length >= MAX_SELECTED_GENRES ? "Maximum genres selected" : "Select a genre"}</option>
+            ${availableOptions}
+        `;
+        genreSelect.value = "";
+    };
+
+    const renderSelectedGenres = () => {
+        if (!state.availableGenres.length && !state.selectedGenres.length) {
+            genreChipContainer.innerHTML = `
+                <p class="cluster-selected-empty">Genre filters will appear once the Steam metadata loads.</p>
+            `;
+            return;
+        }
+
+        if (!state.selectedGenres.length) {
+            genreChipContainer.innerHTML = `
+                <p class="cluster-selected-empty">No genres selected yet. Add 1-4 genres to activate the bubble clusters.</p>
+            `;
+            return;
+        }
+
+        genreChipContainer.innerHTML = state.selectedGenres
+            .map((genre) => {
+                const stats = state.genreStats.get(genre) || { count: 0 };
                 return `
                     <button
-                        class="cluster-chip ${isActive ? "is-active" : ""}"
+                        class="cluster-selected-chip"
                         type="button"
                         data-genre="${escapeHtml(genre)}"
-                        aria-pressed="${isActive ? "true" : "false"}"
-                        ${isDisabled ? "disabled" : ""}
+                        aria-label="Remove ${escapeHtml(genre)} from the bubble cluster filters"
                     >
                         <span>${escapeHtml(genre)}</span>
                         <small>${escapeHtml(integerFormatter.format(stats.count))}</small>
+                        <strong aria-hidden="true">&times;</strong>
                     </button>
                 `;
             })
             .join("");
     };
 
-    const renderLegend = (nodes) => {
-        if (!nodes.length) {
+    const renderLegend = (config) => {
+        if (!config?.legendSamples?.length) {
             legend.innerHTML = "";
             return;
         }
-
-        const values = nodes
-            .map((node) => node.peakCCU)
-            .filter((value) => Number.isFinite(value))
-            .sort((left, right) => left - right);
-        const sampleIndices = [0, Math.floor((values.length - 1) / 2), values.length - 1];
-        const seenValues = new Set();
-        const sizeSamples = sampleIndices
-            .map((index) => values[index])
-            .filter((value) => {
-                if (!Number.isFinite(value) || seenValues.has(value)) {
-                    return false;
-                }
-                seenValues.add(value);
-                return true;
-            })
-            .map((value) => ({
-                value,
-                diameter: Math.round(state.radiusScale(value) * 2)
-            }));
 
         legend.innerHTML = `
             <div class="cluster-legend__group">
@@ -225,12 +289,15 @@ export function initClusterModule(shared) {
             <div class="cluster-legend__group">
                 <span class="cluster-legend__title">Bubble Size</span>
                 <div class="cluster-legend__sizes">
-                    ${sizeSamples
+                    ${config.legendSamples
                         .map(
                             (sample) => `
                                 <span class="cluster-legend__size-item">
-                                    <span class="cluster-legend__size-circle" style="--size:${sample.diameter}px"></span>
-                                    <span>${escapeHtml(formatCompactPlayers(sample.value))}</span>
+                                    <span
+                                        class="cluster-legend__size-circle"
+                                        style="--size:${Math.round(state.radiusScale(sample) * 2)}px"
+                                    ></span>
+                                    <span>${escapeHtml(formatCompactPlayers(sample))}</span>
                                 </span>
                             `
                         )
@@ -340,7 +407,16 @@ export function initClusterModule(shared) {
 
         state.nodes.forEach((node) => {
             node.x = clamp(node.x, bounds.left + node.radius, bounds.right - node.radius);
-            node.y = clamp(node.y, bounds.top + node.radius, bounds.bottom - node.radius);
+            const minY = bounds.top + node.radius;
+            const maxY = bounds.bottom - node.radius;
+            const isInsideVerticalBounds = node.y >= minY && node.y <= maxY;
+
+            if (node.isEntering && !isInsideVerticalBounds) {
+                return;
+            }
+
+            node.isEntering = false;
+            node.y = clamp(node.y, minY, maxY);
         });
 
         bubbleLayer
@@ -361,7 +437,7 @@ export function initClusterModule(shared) {
         tooltip.hidden = false;
         tooltip.innerHTML = `
             <strong>${escapeHtml(node.name)}</strong>
-            <span>${escapeHtml(formatPeakPlayers(node.peakCCU))}</span>
+            <span>${escapeHtml(formatPlayerCount(node.currentPlayers))} on ${escapeHtml(node.dateKey)}</span>
             <span>${escapeHtml(node.companyType)}</span>
             <span>${escapeHtml(node.genres.join(", "))}</span>
         `;
@@ -417,7 +493,6 @@ export function initClusterModule(shared) {
 
         const merged = enter.merge(join);
         bindBubbleEvents(merged);
-
         merged.style("--bubble", (node) => COMPANY_COLORS[node.companyType] || COMPANY_COLORS.Indie);
 
         merged
@@ -450,6 +525,7 @@ export function initClusterModule(shared) {
             state.simulation.nodes([]);
         }
         state.nodes = [];
+        state.activeAppIds = new Set();
     };
 
     const ensureSimulation = () => {
@@ -491,41 +567,124 @@ export function initClusterModule(shared) {
         }, 650);
     };
 
-    const buildVisibleGames = () => {
-        if (!state.selectedGenres.length) {
-            return { matchedGames: [], displayedGames: [] };
+    const buildAnimationConfig = (sharedState) => {
+        if (
+            !dataStore.ready ||
+            !dataStore.dateRange ||
+            !sharedState.startDate ||
+            !sharedState.endDate ||
+            !state.selectedGenres.length
+        ) {
+            return null;
+        }
+
+        const range = clampToDataDomain(sharedState.startDate, sharedState.endDate);
+        const startIndex = getIndexForDate(range.start);
+        const endIndex = getIndexForDate(range.end);
+        const timeline = dataStore.fullTimeline.slice(startIndex, endIndex + 1);
+
+        if (!timeline.length) {
+            return null;
         }
 
         const selectedSet = new Set(state.selectedGenres);
-        const matchedGames = [];
-        const seenAppIds = new Set();
+        const targetScope = sharedState.scope === "all" ? null : sharedState.scope;
+        const attractors = getAttractorCoordinates(state.selectedGenres);
+        const universe = state.catalog
+            .map((game) => {
+                if (targetScope && game.scope !== targetScope) {
+                    return null;
+                }
 
-        state.catalog.forEach((game) => {
-            const matchedGenres = game.genres.filter((genre) => selectedSet.has(genre));
-            if (!matchedGenres.length || seenAppIds.has(game.appId)) {
-                return;
-            }
+                const matchedGenres = game.genres.filter((genre) => selectedSet.has(genre));
+                if (!matchedGenres.length) {
+                    return null;
+                }
 
-            seenAppIds.add(game.appId);
-            matchedGames.push({
-                ...game,
-                matchedGenres
-            });
+                return {
+                    ...game,
+                    matchedGenres
+                };
+            })
+            .filter(Boolean);
+
+        const positiveValues = [];
+        const frames = timeline.map((date, localIndex) => {
+            const globalIndex = startIndex + localIndex;
+            const dateKey = toDateKey(date);
+
+            const visibleGames = universe
+                .map((game) => {
+                    const currentPlayers = Number(game.points?.[globalIndex] || 0);
+                    if (currentPlayers <= 0) {
+                        return null;
+                    }
+
+                    positiveValues.push(currentPlayers);
+                    return {
+                        ...game,
+                        currentPlayers,
+                        dateKey
+                    };
+                })
+                .filter(Boolean)
+                .sort(
+                    (left, right) =>
+                        right.currentPlayers - left.currentPlayers || left.name.localeCompare(right.name)
+                )
+                .slice(0, sharedState.topN || 10);
+
+            return {
+                date,
+                dateKey,
+                visibleGames
+            };
         });
 
-        matchedGames.sort((left, right) => right.peakCCU - left.peakCCU || left.name.localeCompare(right.name));
+        const legendSamples = buildLegendSamples(positiveValues);
+        const [minValue = 1, maxValue = 10] = extent(positiveValues);
 
         return {
-            matchedGames,
-            displayedGames: matchedGames.slice(0, state.topN)
+            range,
+            timeline,
+            startIndex,
+            endIndex,
+            selectedGenres: state.selectedGenres.slice(),
+            scope: sharedState.scope,
+            topN: sharedState.topN || 10,
+            playbackRate: sharedState.playbackRate || 1,
+            attractors,
+            frames,
+            hasAnyPositive: positiveValues.length > 0,
+            scaleExtent: [
+                Math.max(1, minValue || 1),
+                Math.max(Math.max(1, minValue || 1) + 1, maxValue || 10)
+            ],
+            legendSamples
         };
     };
 
-    const buildNodes = (games, attractors) => {
+    const buildConfigKey = (sharedState) => {
+        const startKey = sharedState.startDate ? toDateKey(sharedState.startDate) : "none";
+        const endKey = sharedState.endDate ? toDateKey(sharedState.endDate) : "none";
+        return [
+            sharedState.topN || 10,
+            sharedState.scope || "all",
+            sharedState.playbackRate || 1,
+            startKey,
+            endKey,
+            state.selectedGenres.join("|")
+        ].join("::");
+    };
+
+    const getEntrySeed = (appId, frameIndex) => hashString(appId) + frameIndex * 17;
+
+    const buildNodes = (games, attractors, frameIndex) => {
+        const previousActiveAppIds = new Set(state.activeAppIds);
         const attractorByGenre = new Map(attractors.map((attractor) => [attractor.genre, attractor]));
+        const bounds = getBubbleBounds();
 
         return games.map((game) => {
-            const cachedNode = state.nodeCache.get(game.appId);
             const targetPoints = game.matchedGenres
                 .map((genre) => attractorByGenre.get(genre))
                 .filter(Boolean);
@@ -538,72 +697,220 @@ export function initClusterModule(shared) {
             );
             const targetX = centroid.x / Math.max(targetPoints.length, 1);
             const targetY = centroid.y / Math.max(targetPoints.length, 1);
-            const radius = state.radiusScale(Math.max(1, game.peakCCU));
-            const node = cachedNode || {
+            const radius = state.radiusScale(Math.max(1, game.currentPlayers));
+            const cachedNode = state.nodeCache.get(game.appId) || {
                 appId: game.appId,
-                x: targetX + (Math.random() - 0.5) * 40,
-                y: -90 - Math.random() * 120,
+                x: targetX,
+                y: targetY,
                 vx: 0,
                 vy: 0
             };
 
-            Object.assign(node, {
+            if (!previousActiveAppIds.has(game.appId)) {
+                const seed = getEntrySeed(game.appId, frameIndex);
+                const direction = seed % 2 === 0 ? "top" : "bottom";
+                const offset = ((seed % 11) - 5) * 12;
+                cachedNode.x = clamp(targetX + offset, bounds.left + radius, bounds.right - radius);
+                cachedNode.y = direction === "top" ? -radius - 48 : CLUSTER_HEIGHT + radius + 48;
+                cachedNode.vx = 0;
+                cachedNode.vy = 0;
+                cachedNode.isEntering = true;
+            }
+
+            Object.assign(cachedNode, {
                 ...game,
                 radius,
                 targetX,
                 targetY
             });
 
-            state.nodeCache.set(game.appId, node);
-            return node;
+            state.nodeCache.set(game.appId, cachedNode);
+            return cachedNode;
         });
     };
 
-    const updateScene = () => {
-        syncControls();
-        renderGenreChips();
-        hideTooltip();
+    const buildFrameStatus = (config, frame, frameIndex, mode) => {
+        const prefix =
+            mode === "playback"
+                ? "Animating"
+                : mode === "paused"
+                  ? "Paused"
+                  : mode === "complete"
+                    ? "Completed"
+                    : "Previewing";
+        const speedLabel = formatPlaybackRate(config.playbackRate);
 
-        if (!state.selectedGenres.length) {
-            renderAttractors([]);
-            renderLegend([]);
+        if (!frame.visibleGames.length) {
+            const durationSummary =
+                mode === "playback"
+                    ? `${frameIndex + 1} of ${config.timeline.length} days at ${speedLabel}.`
+                    : mode === "complete"
+                      ? "Reached the end of the selected window."
+                      : mode === "paused"
+                        ? `Playback is paused at ${speedLabel}.`
+                        : `Press Start in Trends to animate ${config.timeline.length} days at ${speedLabel}.`;
+
+            return `${prefix} ${frame.dateKey}. No titles are active in the selected genres for this day. ${durationSummary}`;
+        }
+
+        const durationSummary =
+            mode === "playback"
+                ? `${frameIndex + 1} of ${config.timeline.length} days at ${speedLabel}.`
+                : mode === "complete"
+                  ? "Reached the end of the selected window."
+                  : mode === "paused"
+                    ? `Playback is paused at ${speedLabel}.`
+                    : `Press Start in Trends to animate ${config.timeline.length} days at ${speedLabel}.`;
+
+        return `${prefix} ${frame.visibleGames.length} titles on ${frame.dateKey}. Active genres: ${config.selectedGenres.join(
+            ", "
+        )}. ${durationSummary}`;
+    };
+
+    const renderFrame = (config, frameIndex, mode = "preview") => {
+        const safeFrameIndex = clamp(frameIndex, 0, Math.max(config.frames.length - 1, 0));
+
+        renderAttractors(config.attractors);
+        renderLegend(config);
+
+        const frame = config.frames[safeFrameIndex];
+        if (!frame) {
             renderBubbles([]);
             stopSimulation();
-            setEmptyState("Pick 1-4 genres to create attractor zones.");
-            setStatus("Choose at least one genre to spin up the gravity field.");
+            setCurrentDateLabel("--");
+            setEmptyState("No cluster frames are available for that date range.");
+            setStatus("No cluster frames are available for that date range.", true);
             return;
         }
 
-        const attractors = getAttractorCoordinates(state.selectedGenres);
-        renderAttractors(attractors);
+        setCurrentDateLabel(frame.dateKey);
+        hideTooltip();
 
-        const { matchedGames, displayedGames } = buildVisibleGames();
-        if (!matchedGames.length) {
-            renderLegend([]);
+        if (!frame.visibleGames.length) {
             renderBubbles([]);
             stopSimulation();
-            setEmptyState("No tracked titles matched those genre filters. Try a broader combination.");
-            setStatus("No games matched the current genre combination.", true);
+            setEmptyState(`No matched titles are active on ${frame.dateKey}.`);
+            setStatus(buildFrameStatus(config, frame, safeFrameIndex, mode));
             return;
         }
 
         hideEmptyState();
+        state.nodes = buildNodes(frame.visibleGames, config.attractors, safeFrameIndex);
+        state.activeAppIds = new Set(state.nodes.map((node) => node.appId));
 
-        state.nodes = buildNodes(displayedGames, attractors);
-        renderLegend(state.nodes);
         renderBubbles(state.nodes);
         updateBubblePositions();
         restartSimulation();
-
-        const selectedLabel = state.selectedGenres.join(", ");
-        const displayedCount = displayedGames.length;
-        const hasOverflow = matchedGames.length > displayedCount;
-        const countMessage = hasOverflow
-            ? `Showing ${displayedCount} of ${matchedGames.length} matched titles.`
-            : `Showing all ${displayedCount} matched titles.`;
-
-        setStatus(`${countMessage} Active genres: ${selectedLabel}.`);
+        setStatus(buildFrameStatus(config, frame, safeFrameIndex, mode));
     };
+
+    const getRenderMode = (eventType) => {
+        if (eventType === "pause" || state.shared.playbackStatus === "paused") {
+            return "paused";
+        }
+        if (eventType === "complete" || state.shared.playbackStatus === "complete") {
+            return "complete";
+        }
+        if (
+            eventType === "start" ||
+            eventType === "resume" ||
+            eventType === "frame" ||
+            state.shared.playbackStatus === "running"
+        ) {
+            return "playback";
+        }
+        return "preview";
+    };
+
+    const syncFromSharedState = (eventType = "reset") => {
+        renderGenrePicker();
+        renderSelectedGenres();
+        syncControls();
+
+        if (!dataStore.ready) {
+            state.animationConfig = null;
+            renderLegend(null);
+            renderAttractors([]);
+            renderBubbles([]);
+            stopSimulation();
+            setCurrentDateLabel("--");
+            setEmptyState("Steam telemetry is unavailable for the cluster view.");
+            setStatus("Cluster data could not be loaded.", true);
+            return;
+        }
+
+        if (!state.selectedGenres.length) {
+            state.animationConfig = null;
+            renderLegend(null);
+            renderAttractors([]);
+            renderBubbles([]);
+            stopSimulation();
+            setCurrentDateLabel("--");
+            setEmptyState("Pick 1-4 genres to create attractor zones on the Trends timeline.");
+            setStatus("Choose at least one genre to preview the bubble clusters.");
+            return;
+        }
+
+        if (!state.shared.startDate || !state.shared.endDate) {
+            state.animationConfig = null;
+            renderLegend(null);
+            renderAttractors([]);
+            renderBubbles([]);
+            stopSimulation();
+            setCurrentDateLabel("--");
+            setEmptyState("Waiting for the Trends controls to initialize the shared timeline.");
+            setStatus("Waiting for the Trends controls to publish a valid time window.");
+            return;
+        }
+
+        const configKey = buildConfigKey(state.shared);
+        const shouldRebuild =
+            !state.animationConfig || eventType === "reset" || eventType === "init" || configKey !== state.configKey;
+        const nextConfig = shouldRebuild ? buildAnimationConfig(state.shared) : state.animationConfig;
+
+        if (!nextConfig) {
+            state.animationConfig = null;
+            state.configKey = "";
+            renderLegend(null);
+            renderAttractors([]);
+            renderBubbles([]);
+            stopSimulation();
+            setCurrentDateLabel("--");
+            setEmptyState("The selected Trends time window could not be prepared for the bubble view.");
+            setStatus("No valid cluster range was produced for the shared Trends controls.", true);
+            return;
+        }
+
+        state.animationConfig = nextConfig;
+        state.configKey = configKey;
+        state.radiusScale.domain(nextConfig.scaleExtent);
+
+        if (!nextConfig.hasAnyPositive) {
+            renderLegend(nextConfig);
+            renderAttractors(nextConfig.attractors);
+            renderBubbles([]);
+            stopSimulation();
+            setCurrentDateLabel(nextConfig.timeline[0] ? toDateKey(nextConfig.timeline[0]) : "--");
+            setEmptyState("No matched titles are active anywhere in that shared date window.");
+            setStatus("No games with active players matched the selected genres in that Trends range.", true);
+            return;
+        }
+
+        const frameIndex = clamp(state.shared.frameIndex || 0, 0, nextConfig.frames.length - 1);
+        renderFrame(nextConfig, frameIndex, getRenderMode(eventType));
+    };
+
+    genreSelect.addEventListener("change", () => {
+        const genre = genreSelect.value;
+        if (!genre || state.selectedGenres.includes(genre) || state.selectedGenres.length >= MAX_SELECTED_GENRES) {
+            genreSelect.value = "";
+            return;
+        }
+
+        state.selectedGenres = [...state.selectedGenres, genre];
+        genreSelect.value = "";
+        syncFromSharedState(state.shared.playbackStatus === "running" ? "frame" : "reset");
+    });
 
     genreChipContainer.addEventListener("click", (event) => {
         const button = event.target.closest("button[data-genre]");
@@ -616,84 +923,90 @@ export function initClusterModule(shared) {
             return;
         }
 
-        if (state.selectedGenres.includes(genre)) {
-            state.selectedGenres = state.selectedGenres.filter((entry) => entry !== genre);
-        } else if (state.selectedGenres.length < MAX_SELECTED_GENRES) {
-            state.selectedGenres = [...state.selectedGenres, genre];
-        }
-
-        updateScene();
-    });
-
-    topCountSelect.addEventListener("change", () => {
-        const nextValue = Number(topCountSelect.value) || 15;
-        state.topN = clamp(nextValue, 10, 20);
-        updateScene();
+        state.selectedGenres = state.selectedGenres.filter((entry) => entry !== genre);
+        syncFromSharedState(state.shared.playbackStatus === "running" ? "frame" : "reset");
     });
 
     clearButton.addEventListener("click", () => {
         state.selectedGenres = [];
-        updateScene();
+        syncFromSharedState("reset");
     });
+
+    trendSync.subscribe((snapshot, eventType) => {
+        state.shared = snapshot;
+        if (eventType === "selection") {
+            return;
+        }
+        syncFromSharedState(eventType);
+    });
+
+    setCurrentDateLabel("--");
+    setStatus("Loading cluster telemetry...");
+    syncControls();
+    renderGenrePicker();
+    renderSelectedGenres();
 
     telemetryPromise
         .then(() => {
             if (!dataStore.ready) {
-                setStatus("Cluster data could not be loaded.", true);
-                setEmptyState("Steam telemetry is unavailable for the cluster view.");
+                syncFromSharedState("reset");
                 return;
             }
 
-            const catalog = dataStore.rankedAppIds
-                .map((appId) => dataStore.metadata.get(appId))
+            state.catalog = dataStore.rankedAppIds
+                .map((appId) => {
+                    const meta = dataStore.metadata.get(appId);
+                    const points = dataStore.pointsById.get(appId);
+                    if (!meta || !points?.length) {
+                        return null;
+                    }
+
+                    return {
+                        appId: meta.appId,
+                        name: meta.name,
+                        genres: splitCommaList(meta.genres),
+                        companyType: getCompanyType(meta),
+                        studioSize: meta.studioSize || getCompanyType(meta),
+                        scope: meta.scope,
+                        points
+                    };
+                })
                 .filter(Boolean)
-                .map((meta) => ({
-                    appId: meta.appId,
-                    name: meta.name,
-                    peakCCU: Number(meta.peakCCU) || 0,
-                    genres: splitCommaList(meta.genres),
-                    companyType: getCompanyType(meta),
-                    studioSize: meta.studioSize || getCompanyType(meta)
-                }))
                 .filter((entry) => entry.genres.length);
 
             const genreStats = new Map();
-            catalog.forEach((game) => {
+            state.catalog.forEach((game) => {
                 game.genres.forEach((genre) => {
                     if (!genreStats.has(genre)) {
                         genreStats.set(genre, {
-                            count: 0,
-                            totalPeak: 0
+                            count: 0
                         });
                     }
 
-                    const stats = genreStats.get(genre);
-                    stats.count += 1;
-                    stats.totalPeak += game.peakCCU;
+                    genreStats.get(genre).count += 1;
                 });
             });
 
-            const [minPeak = 1, maxPeak = 10] = extent(catalog, (entry) => entry.peakCCU);
-            state.catalog = catalog;
             state.genreStats = genreStats;
             state.availableGenres = Array.from(genreStats.entries())
-                .sort(
-                    (left, right) =>
-                        right[1].count - left[1].count ||
-                        right[1].totalPeak - left[1].totalPeak ||
-                        left[0].localeCompare(right[0])
-                )
+                .sort((left, right) => right[1].count - left[1].count || left[0].localeCompare(right[0]))
                 .map(([genre]) => genre);
-            state.radiusScale.domain([
-                Math.max(1, minPeak || 1),
-                Math.max(Math.max(1, minPeak || 1) + 1, maxPeak || 10)
-            ]);
 
-            updateScene();
+            renderGenrePicker();
+            renderSelectedGenres();
+            syncControls();
+            syncFromSharedState("reset");
         })
         .catch((error) => {
             console.error("Cluster telemetry failed to load", error);
+            state.animationConfig = null;
+            renderLegend(null);
+            renderAttractors([]);
+            renderBubbles([]);
+            stopSimulation();
+            setCurrentDateLabel("--");
+            setEmptyState("The bubble cluster view could not load the Steam metadata.");
             setStatus("Failed to load cluster telemetry.", true);
-            setEmptyState("The cluster view could not load the Steam metadata.");
+            syncControls();
         });
 }

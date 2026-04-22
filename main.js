@@ -427,6 +427,84 @@ const drawCanvasPlaceholder = (ctx, canvas, title, detail) => {
     ctx.fillText(detail, canvas.width / 2, canvas.height / 2 + 12);
 };
 
+const createTrendSyncController = () => {
+    const listeners = new Set();
+    const state = {
+        topN: 10,
+        scope: "all",
+        startDate: null,
+        endDate: null,
+        playbackRate: 1,
+        timeline: [],
+        frameIndex: 0,
+        currentDate: null,
+        isRunning: false,
+        playbackStatus: "idle"
+    };
+
+    const snapshot = () => ({
+        ...state,
+        timeline: state.timeline.slice()
+    });
+
+    const publish = (eventType, patch = {}) => {
+        Object.assign(state, patch);
+
+        if (eventType === "start" || eventType === "resume" || eventType === "frame") {
+            state.isRunning = true;
+            state.playbackStatus = "running";
+        } else if (eventType === "pause") {
+            state.isRunning = false;
+            state.playbackStatus = "paused";
+        } else if (eventType === "complete") {
+            state.isRunning = false;
+            state.playbackStatus = "complete";
+        } else if (eventType === "reset") {
+            state.isRunning = false;
+            state.playbackStatus = "idle";
+        }
+
+        const nextSnapshot = snapshot();
+        listeners.forEach((listener) => listener(nextSnapshot, eventType));
+        return nextSnapshot;
+    };
+
+    return {
+        getState: snapshot,
+        subscribe(listener) {
+            listeners.add(listener);
+            listener(snapshot(), "init");
+            return () => listeners.delete(listener);
+        },
+        syncSelection(patch) {
+            return publish("selection", patch);
+        },
+        resetPlayback(patch) {
+            return publish("reset", {
+                frameIndex: 0,
+                currentDate: null,
+                timeline: [],
+                ...patch
+            });
+        },
+        startPlayback(patch) {
+            return publish("start", patch);
+        },
+        syncFrame(patch) {
+            return publish("frame", patch);
+        },
+        pausePlayback(patch) {
+            return publish("pause", patch);
+        },
+        resumePlayback(patch) {
+            return publish("resume", patch);
+        },
+        completePlayback(patch) {
+            return publish("complete", patch);
+        }
+    };
+};
+
 const loadTelemetry = async () => {
     const fetchFirstAvailableCsv = async (relativePaths) => {
         for (const relativePath of relativePaths) {
@@ -494,6 +572,7 @@ const loadTelemetry = async () => {
 };
 
 const telemetryPromise = loadTelemetry();
+const trendSync = createTrendSyncController();
 
 const setupNavigation = () => {
     const navLinks = document.querySelectorAll(".rail nav a[data-view]");
@@ -540,6 +619,7 @@ const setupNavigation = () => {
 const createSharedContext = () => ({
     dataStore,
     telemetryPromise,
+    trendSync,
     constants: {
         COLOR_PALETTE,
         TREND_FRAME_INTERVAL,

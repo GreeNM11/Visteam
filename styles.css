@@ -268,8 +268,9 @@ body {
 }
 
 .canvas__grid--trends {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr);
-    gap: 0.85rem;
+    grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
 }
 
 .canvas__grid--compare {
@@ -292,7 +293,19 @@ body {
 }
 
 .canvas__cell--trend {
-    min-height: 300px;
+    min-height: clamp(460px, 54vh, 680px);
+}
+
+.canvas__cell--trend-main {
+    min-height: auto;
+}
+
+.canvas__cell--trend-sidebar {
+    min-height: auto;
+}
+
+.canvas__cell--trend-bubbles {
+    min-height: clamp(460px, 54vh, 680px);
 }
 
 .canvas__cell--compare-main {
@@ -359,11 +372,34 @@ body {
     color: var(--muted);
 }
 
+.trend-speed select {
+    min-width: 118px;
+}
+
 .trend-actions {
     margin-top: 0.85rem;
     display: flex;
     flex-wrap: wrap;
     gap: 0.6rem;
+}
+
+.trend-shortcuts {
+    margin: 0.45rem 0 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.trend-shortcuts kbd {
+    display: inline-block;
+    padding: 0.08rem 0.42rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    letter-spacing: 0.05em;
 }
 
 .trend-status {
@@ -414,6 +450,9 @@ body {
 
 .trend-chart {
     margin-top: 1rem;
+    width: min(100%, 600px);
+    margin-left: auto;
+    margin-right: auto;
     border: 1px solid var(--stroke);
     border-radius: 16px;
     padding: 0.75rem;
@@ -453,6 +492,16 @@ body {
 .trend-tooltip strong {
     font-size: 0.8rem;
     letter-spacing: 0.05em;
+}
+
+.trend-bubble-section {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.trend-bubble-copy {
+    padding-right: 0.35rem;
 }
 
 .compare-toolbar {
@@ -715,31 +764,80 @@ body {
 .cluster-panel {
     border: 1px solid var(--stroke);
     border-radius: 18px;
-    padding: 0.95rem;
+    padding: 0.85rem;
     background: rgba(255, 255, 255, 0.02);
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.65rem;
 }
 
 .cluster-panel--compact {
     min-height: 100%;
 }
 
-.cluster-chip-list {
+.cluster-panel--embedded {
+    margin-top: 0.85rem;
+}
+
+.cluster-panel--sidebar {
+    position: sticky;
+    top: 0.85rem;
+}
+
+.cluster-panel__divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 0.1rem 0 0.15rem;
+}
+
+.cluster-panel__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.cluster-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.85rem;
+}
+
+.cluster-picker__control {
+    min-width: min(100%, 320px);
+}
+
+.cluster-picker__control select {
+    min-width: min(100%, 320px);
+}
+
+.cluster-picker__hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.cluster-selected-list {
     display: flex;
     flex-wrap: wrap;
     gap: 0.55rem;
-    max-height: 216px;
-    overflow-y: auto;
-    padding-right: 0.15rem;
+    min-height: 2.75rem;
 }
 
-.cluster-chip {
+.cluster-selected-empty {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.cluster-selected-chip {
     border: 1px solid var(--stroke);
     border-radius: 999px;
     padding: 0.45rem 0.75rem;
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(100, 233, 255, 0.12);
     color: var(--text);
     font: inherit;
     cursor: pointer;
@@ -749,23 +847,12 @@ body {
     transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.2s;
 }
 
-.cluster-chip:hover:not(:disabled) {
+.cluster-selected-chip:hover:not(:disabled) {
     border-color: var(--accent);
     transform: translateY(-1px);
 }
 
-.cluster-chip.is-active {
-    border-color: var(--accent);
-    background: rgba(100, 233, 255, 0.12);
-    color: var(--text);
-}
-
-.cluster-chip:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-.cluster-chip small {
+.cluster-selected-chip small {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -778,6 +865,12 @@ body {
     line-height: 1;
 }
 
+.cluster-selected-chip strong {
+    font-size: 1rem;
+    line-height: 1;
+    opacity: 0.72;
+}
+
 .cluster-controls-row {
     display: flex;
     flex-wrap: wrap;
@@ -786,16 +879,62 @@ body {
     justify-content: space-between;
 }
 
+.cluster-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    justify-content: flex-end;
+}
+
+.cluster-speed select {
+    min-width: 118px;
+}
+
+.cluster-start,
 .cluster-clear {
     min-width: 150px;
 }
 
+.cluster-panel--sidebar .cluster-clear {
+    align-self: flex-start;
+}
+
+.cluster-pause {
+    min-width: 126px;
+}
+
+.cluster-range {
+    margin-top: 0.15rem;
+}
+
+.cluster-date-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    width: fit-content;
+    padding: 0.4rem 0.72rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.cluster-meta-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.65rem;
+}
+
 .cluster-meta-row {
-    margin-top: 0.95rem;
+    margin-top: 0.85rem;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 0.85rem;
+    gap: 0.75rem;
 }
 
 .cluster-status {
@@ -803,11 +942,20 @@ body {
     max-width: 460px;
 }
 
+.cluster-panel--sidebar .cluster-status {
+    max-width: none;
+}
+
 .cluster-legend {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0.85rem;
+}
+
+.cluster-panel--sidebar .cluster-legend {
+    justify-content: flex-start;
+    gap: 0.7rem;
 }
 
 .cluster-legend__group {
@@ -863,6 +1011,9 @@ body {
 
 .cluster-chart {
     margin-top: 1rem;
+    width: min(100%, 600px);
+    margin-left: auto;
+    margin-right: auto;
     border: 1px solid var(--stroke);
     border-radius: 18px;
     padding: 0.75rem;
@@ -873,6 +1024,10 @@ body {
         rgba(6, 10, 16, 0.72);
     position: relative;
     overflow: hidden;
+}
+
+.trend-bubble-section .cluster-chart {
+    margin-top: 0;
 }
 
 .cluster-chart svg {
@@ -1175,6 +1330,14 @@ body {
         grid-template-columns: 1fr;
     }
 
+    .canvas__cell--trend-main {
+        min-height: auto;
+    }
+
+    .cluster-panel--sidebar {
+        position: static;
+    }
+
     .compare-meta-row,
     .compare-overview__label,
     .cluster-meta-row {
@@ -1185,6 +1348,10 @@ body {
     .compare-legend,
     .cluster-legend {
         justify-content: flex-start;
+    }
+
+    .cluster-panel__row {
+        flex-direction: column;
     }
 
     .compare-marker-form__fields {
@@ -1205,7 +1372,14 @@ body {
         align-items: stretch;
     }
 
-    .cluster-clear {
+    .cluster-actions {
+        justify-content: stretch;
+    }
+
+    .cluster-actions .trend-button,
+    .cluster-start,
+    .cluster-clear,
+    .cluster-pause {
         width: 100%;
     }
 }
