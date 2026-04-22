@@ -11,7 +11,7 @@ import {
 } from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
 const CLUSTER_WIDTH = 960;
-const CLUSTER_HEIGHT = 560;
+const CLUSTER_HEIGHT = 640;
 const MAX_SELECTED_GENRES = 4;
 const ATTRACTOR_COLORS = ["#64e9ff", "#8f7bff", "#f7c948", "#ff8bd2"];
 const COMPANY_COLORS = {
@@ -116,7 +116,9 @@ export function initClusterModule(shared) {
         }
     } = shared;
 
+    const genreSelect = document.getElementById("clusterGenreSelect");
     const genreChipContainer = document.getElementById("clusterGenreChips");
+    const genreHint = document.getElementById("clusterGenreHint");
     const clearButton = document.getElementById("clusterClear");
     const currentDateLabel = document.getElementById("clusterCurrentDate");
     const statusLabel = document.getElementById("clusterStatus");
@@ -127,7 +129,9 @@ export function initClusterModule(shared) {
     const emptyState = document.getElementById("clusterEmptyState");
 
     if (
+        !genreSelect ||
         !genreChipContainer ||
+        !genreHint ||
         !clearButton ||
         !currentDateLabel ||
         !statusLabel ||
@@ -190,35 +194,70 @@ export function initClusterModule(shared) {
 
     const syncControls = () => {
         clearButton.disabled = !state.selectedGenres.length;
+        genreSelect.disabled = !state.availableGenres.length || state.selectedGenres.length >= MAX_SELECTED_GENRES;
+
+        if (!state.availableGenres.length) {
+            genreHint.textContent = "Genre options will appear once the Steam metadata loads.";
+        } else if (state.selectedGenres.length >= MAX_SELECTED_GENRES) {
+            genreHint.textContent = "Maximum of four genres selected. Remove one to add another.";
+        } else {
+            genreHint.textContent = `Select up to four genres. ${state.selectedGenres.length} of ${MAX_SELECTED_GENRES} selected.`;
+        }
     };
 
-    const renderGenreChips = () => {
+    const renderGenrePicker = () => {
         if (!state.availableGenres.length) {
-            genreChipContainer.innerHTML = `
-                <p class="compare-empty-note">Genre filters will appear once the Steam metadata loads.</p>
-            `;
+            genreSelect.innerHTML = `<option value="">Genre list unavailable</option>`;
+            genreSelect.value = "";
             return;
         }
 
         const selectedSet = new Set(state.selectedGenres);
-        const selectionLocked = state.selectedGenres.length >= MAX_SELECTED_GENRES;
-
-        genreChipContainer.innerHTML = state.availableGenres
+        const availableOptions = state.availableGenres
+            .filter((genre) => !selectedSet.has(genre))
             .map((genre) => {
                 const stats = state.genreStats.get(genre) || { count: 0 };
-                const isActive = selectedSet.has(genre);
-                const isDisabled = selectionLocked && !isActive;
+                return `<option value="${escapeHtml(genre)}">${escapeHtml(genre)} (${escapeHtml(
+                    integerFormatter.format(stats.count)
+                )})</option>`;
+            })
+            .join("");
 
+        genreSelect.innerHTML = `
+            <option value="">${state.selectedGenres.length >= MAX_SELECTED_GENRES ? "Maximum genres selected" : "Select a genre"}</option>
+            ${availableOptions}
+        `;
+        genreSelect.value = "";
+    };
+
+    const renderSelectedGenres = () => {
+        if (!state.availableGenres.length && !state.selectedGenres.length) {
+            genreChipContainer.innerHTML = `
+                <p class="cluster-selected-empty">Genre filters will appear once the Steam metadata loads.</p>
+            `;
+            return;
+        }
+
+        if (!state.selectedGenres.length) {
+            genreChipContainer.innerHTML = `
+                <p class="cluster-selected-empty">No genres selected yet. Add 1-4 genres to activate the bubble clusters.</p>
+            `;
+            return;
+        }
+
+        genreChipContainer.innerHTML = state.selectedGenres
+            .map((genre) => {
+                const stats = state.genreStats.get(genre) || { count: 0 };
                 return `
                     <button
-                        class="cluster-chip ${isActive ? "is-active" : ""}"
+                        class="cluster-selected-chip"
                         type="button"
                         data-genre="${escapeHtml(genre)}"
-                        aria-pressed="${isActive ? "true" : "false"}"
-                        ${isDisabled ? "disabled" : ""}
+                        aria-label="Remove ${escapeHtml(genre)} from the bubble cluster filters"
                     >
                         <span>${escapeHtml(genre)}</span>
                         <small>${escapeHtml(integerFormatter.format(stats.count))}</small>
+                        <strong aria-hidden="true">&times;</strong>
                     </button>
                 `;
             })
@@ -784,7 +823,8 @@ export function initClusterModule(shared) {
     };
 
     const syncFromSharedState = (eventType = "reset") => {
-        renderGenreChips();
+        renderGenrePicker();
+        renderSelectedGenres();
         syncControls();
 
         if (!dataStore.ready) {
@@ -860,6 +900,18 @@ export function initClusterModule(shared) {
         renderFrame(nextConfig, frameIndex, getRenderMode(eventType));
     };
 
+    genreSelect.addEventListener("change", () => {
+        const genre = genreSelect.value;
+        if (!genre || state.selectedGenres.includes(genre) || state.selectedGenres.length >= MAX_SELECTED_GENRES) {
+            genreSelect.value = "";
+            return;
+        }
+
+        state.selectedGenres = [...state.selectedGenres, genre];
+        genreSelect.value = "";
+        syncFromSharedState(state.shared.playbackStatus === "running" ? "frame" : "reset");
+    });
+
     genreChipContainer.addEventListener("click", (event) => {
         const button = event.target.closest("button[data-genre]");
         if (!button) {
@@ -871,12 +923,7 @@ export function initClusterModule(shared) {
             return;
         }
 
-        if (state.selectedGenres.includes(genre)) {
-            state.selectedGenres = state.selectedGenres.filter((entry) => entry !== genre);
-        } else if (state.selectedGenres.length < MAX_SELECTED_GENRES) {
-            state.selectedGenres = [...state.selectedGenres, genre];
-        }
-
+        state.selectedGenres = state.selectedGenres.filter((entry) => entry !== genre);
         syncFromSharedState(state.shared.playbackStatus === "running" ? "frame" : "reset");
     });
 
@@ -896,7 +943,8 @@ export function initClusterModule(shared) {
     setCurrentDateLabel("--");
     setStatus("Loading cluster telemetry...");
     syncControls();
-    renderGenreChips();
+    renderGenrePicker();
+    renderSelectedGenres();
 
     telemetryPromise
         .then(() => {
@@ -944,7 +992,8 @@ export function initClusterModule(shared) {
                 .sort((left, right) => right[1].count - left[1].count || left[0].localeCompare(right[0]))
                 .map(([genre]) => genre);
 
-            renderGenreChips();
+            renderGenrePicker();
+            renderSelectedGenres();
             syncControls();
             syncFromSharedState("reset");
         })
