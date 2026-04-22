@@ -268,7 +268,7 @@ body {
 }
 
 .canvas__grid--trends {
-    grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
     align-items: start;
 }
@@ -301,6 +301,16 @@ body {
 }
 
 .canvas__cell--trend-sidebar {
+    min-height: auto;
+}
+
+.canvas__cell--trend-top {
+    grid-column: 1 / -1;
+    min-height: auto;
+}
+
+.canvas__cell--trend-view,
+.canvas__cell--trend-bubble-view {
     min-height: auto;
 }
 
@@ -495,13 +505,20 @@ body {
 }
 
 .trend-bubble-section {
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 0.85rem;
+    padding-top: 0;
+    border-top: none;
 }
 
 .trend-bubble-copy {
     padding-right: 0.35rem;
+}
+
+.trend-bubble-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    min-width: 0;
 }
 
 .compare-toolbar {
@@ -784,6 +801,13 @@ body {
     top: 0.85rem;
 }
 
+.cluster-panel--top {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.2fr);
+    gap: 1rem;
+    align-items: start;
+}
+
 .cluster-panel__divider {
     height: 1px;
     background: rgba(255, 255, 255, 0.08);
@@ -899,6 +923,10 @@ body {
     align-self: flex-start;
 }
 
+.trend-bubble-card--controls .cluster-clear {
+    align-self: flex-start;
+}
+
 .cluster-pause {
     min-width: 126px;
 }
@@ -946,6 +974,10 @@ body {
     max-width: none;
 }
 
+.cluster-panel--top .cluster-status {
+    max-width: none;
+}
+
 .cluster-legend {
     display: flex;
     flex-wrap: wrap;
@@ -954,6 +986,11 @@ body {
 }
 
 .cluster-panel--sidebar .cluster-legend {
+    justify-content: flex-start;
+    gap: 0.7rem;
+}
+
+.cluster-panel--top .cluster-legend {
     justify-content: flex-start;
     gap: 0.7rem;
 }
@@ -1334,8 +1371,16 @@ body {
         min-height: auto;
     }
 
+    .canvas__cell--trend-top {
+        grid-column: auto;
+    }
+
     .cluster-panel--sidebar {
         position: static;
+    }
+
+    .cluster-panel--top {
+        grid-template-columns: 1fr;
     }
 
     .compare-meta-row,
