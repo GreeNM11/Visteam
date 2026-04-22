@@ -25,22 +25,6 @@
                     </span>
                     <span>Trends</span>
                 </a>
-                <a href="#" data-view="clusters">
-                    <span class="icon icon-clusters" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" role="presentation">
-                            <circle cx="12" cy="12" r="2.6" />
-                            <circle cx="6.5" cy="7" r="1.7" />
-                            <circle cx="17.5" cy="7" r="1.7" />
-                            <circle cx="6.5" cy="17" r="1.7" />
-                            <circle cx="17.5" cy="17" r="1.7" />
-                            <path d="M8 8.2 10.3 10.3" />
-                            <path d="M16 8.2 13.7 10.3" />
-                            <path d="M8 15.8 10.3 13.7" />
-                            <path d="M16 15.8 13.7 13.7" />
-                        </svg>
-                    </span>
-                    <span>Clusters</span>
-                </a>
                 <a href="#" data-view="compare">
                     <span class="icon icon-data" aria-hidden="true">
                         <svg viewBox="0 0 24 24" role="presentation"><path d="M7 12a5 5 0 0 1 5-5h5" /><path d="M17 12a5 5 0 0 1-5 5H7" /><circle cx="7" cy="12" r="2" /><circle cx="17" cy="12" r="2" /></svg>
@@ -92,15 +76,16 @@
                             <header>Timelapse</header>
                             <form class="trend-controls" aria-label="Momentum surface controls">
                                 <label class="trend-control">
-                                    <span>Game Count</span>
-                                    <select name="game-count">
-                                        <option value="top10">Top 10</option>
-                                        <option value="top15">Top 15</option>
+                                    <span>Top Games</span>
+                                    <select id="trendTopCount" name="trend-top-count">
+                                        <option value="10" selected>Top 10</option>
+                                        <option value="15">Top 15</option>
+                                        <option value="20">Top 20</option>
                                     </select>
                                 </label>
                                 <label class="trend-control">
                                     <span>Publisher Scope</span>
-                                    <select name="publisher-scope">
+                                    <select id="trendPublisherScope" name="publisher-scope">
                                         <option value="all">All Companies</option>
                                         <option value="large">Large Companies</option>
                                         <option value="medium">Medium Studios</option>
@@ -110,65 +95,55 @@
                                 <label class="trend-control trend-control--range">
                                     <span>Time Window</span>
                                     <div class="trend-control__range">
-                                        <input type="text" name="start-date" placeholder="Start YYYY-MM-DD" aria-label="Start date" value="2025-01-01">
-                                        <input type="text" name="end-date" placeholder="End YYYY-MM-DD" aria-label="End date" value="2025-12-31">
+                                        <input id="trendStartDate" type="text" name="start-date" placeholder="Start YYYY-MM-DD" aria-label="Start date" value="2025-01-01">
+                                        <input id="trendEndDate" type="text" name="end-date" placeholder="End YYYY-MM-DD" aria-label="End date" value="2025-12-31">
                                     </div>
+                                </label>
+                                <label class="trend-control trend-speed">
+                                    <span>Playback Speed</span>
+                                    <select id="trendSpeed" name="playback-speed">
+                                        <option value="0.25">0.25x</option>
+                                        <option value="0.5">0.5x</option>
+                                        <option value="1" selected>1x</option>
+                                        <option value="1.5">1.5x</option>
+                                        <option value="2">2x</option>
+                                    </select>
                                 </label>
                             </form>
                             <div class="trend-actions">
                                 <button class="trend-button trend-start" id="trendStart" type="button" disabled>Start Timelapse</button>
                                 <button class="trend-button trend-pause" id="trendPause" type="button" disabled>Pause</button>
                             </div>
+                            <p class="trend-shortcuts">
+                                Shortcuts: <kbd>Space</kbd> pauses or resumes the visualization, and <kbd>R</kbd> restarts it from the beginning.
+                            </p>
                             <p class="trend-status" id="trendStatus">Loading live telemetry&hellip;</p>
                             <div class="trend-chart" role="presentation">
                                 <canvas id="trendChart" width="960" height="420" aria-label="Trend line chart placeholder"></canvas>
                                 <div class="trend-tooltip" id="trendTooltip" hidden></div>
                             </div>
                         </article>
-                        <article class="canvas__cell canvas__cell--trend">
+                        <article class="canvas__cell canvas__cell--trend canvas__cell--trend-bubbles">
                             <header>Bubble Clusters</header>
-                            <p class="canvas__hint">The interactive force-based genre cluster chart now lives in the dedicated <strong>Clusters</strong> view.</p>
-                            <p class="compare-empty-note">Open that screen to combine up to four genres, watch the bubbles settle into attractor zones, and inspect company type and popularity at a glance.</p>
-                        </article>
-                    </div>
-                </div>
-                <div class="canvas__content" data-view="clusters" hidden>
-                    <div class="canvas__grid canvas__grid--clusters">
-                        <article class="canvas__cell canvas__cell--clusters-main">
-                            <header>Genre Gravity Field</header>
-                            <div class="cluster-toolbar">
-                                <section class="cluster-panel">
+                            <section class="cluster-panel cluster-panel--embedded">
+                                <div class="cluster-panel__row">
                                     <div class="compare-panel__heading">
                                         <span>Genre Selection</span>
-                                        <small>Pick up to four genres and the bubbles will drift toward each attractor zone.</small>
+                                        <small>Pick up to four genres and the bubbles will drift toward each attractor zone while following the Trends timeline.</small>
                                     </div>
-                                    <div class="cluster-chip-list" id="clusterGenreChips" aria-label="Genre filters"></div>
-                                </section>
-
-                                <section class="cluster-panel cluster-panel--compact">
-                                    <div class="compare-panel__heading">
-                                        <span>Bubble Controls</span>
-                                        <small>Show the top matching titles ranked by the current popularity metric.</small>
-                                    </div>
-                                    <div class="cluster-controls-row">
-                                        <label class="trend-control">
-                                            <span>Top Games</span>
-                                            <select id="clusterTopCount" name="cluster-top-count">
-                                                <option value="10">Top 10</option>
-                                                <option value="15" selected>Top 15</option>
-                                                <option value="20">Top 20</option>
-                                            </select>
-                                        </label>
-                                        <button class="trend-button cluster-clear" id="clusterClear" type="button" disabled>Clear Genres</button>
-                                    </div>
-                                </section>
-                            </div>
-
+                                    <button class="trend-button cluster-clear" id="clusterClear" type="button" disabled>Clear Genres</button>
+                                </div>
+                                <div class="cluster-chip-list" id="clusterGenreChips" aria-label="Genre filters"></div>
+                            </section>
                             <div class="cluster-meta-row">
-                                <p class="trend-status cluster-status" id="clusterStatus">Loading cluster telemetry&hellip;</p>
+                                <div class="cluster-meta-copy">
+                                    <p class="trend-status cluster-status" id="clusterStatus">Loading cluster telemetry&hellip;</p>
+                                    <div class="cluster-date-indicator" id="clusterCurrentDate" aria-live="polite">
+                                        Current Day: --
+                                    </div>
+                                </div>
                                 <div class="cluster-legend" id="clusterLegend" aria-live="polite"></div>
                             </div>
-
                             <div class="cluster-chart" id="clusterChartShell" role="presentation">
                                 <svg
                                     id="clusterChart"
