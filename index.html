@@ -72,37 +72,46 @@
                 </div>
                 <div class="canvas__content" data-view="trends" hidden>
                     <div class="canvas__grid canvas__grid--trends">
-                        <article class="canvas__cell canvas__cell--trend-sidebar">
-                            <header>Bubble Cluster</header>
-                            <section class="cluster-panel cluster-panel--embedded cluster-panel--sidebar">
-                                <div class="compare-panel__heading trend-bubble-copy">
-                                    <span id="trendBubbleHeading">Bubble Clusters</span>
-                                    <small>Selected genres create attractor zones while the same Trends time controls drive entries, exits, and daily player-count changes.</small>
+                        <article class="canvas__cell canvas__cell--trend-top">
+                            <header>Bubble Cluster Guide</header>
+                            <section class="cluster-panel cluster-panel--embedded cluster-panel--top">
+                                <div class="trend-bubble-card trend-bubble-card--intro">
+                                    <div class="compare-panel__heading trend-bubble-copy">
+                                        <span id="trendBubbleHeading">Bubble Clusters</span>
+                                        <small>Selected genres create attractor zones while the same Trends time controls drive entries, exits, and daily player-count changes.</small>
+                                    </div>
+                                    <div class="cluster-date-indicator" id="clusterCurrentDate" aria-live="polite">
+                                        Current Day: --
+                                    </div>
+                                    <p class="trend-status cluster-status" id="clusterStatus">Loading cluster telemetry&hellip;</p>
                                 </div>
-                                <div class="cluster-date-indicator" id="clusterCurrentDate" aria-live="polite">
-                                    Current Day: --
+                                <div class="trend-bubble-card trend-bubble-card--legend">
+                                    <div class="compare-panel__heading">
+                                        <span>Legend</span>
+                                        <small>Bubble size tracks players and bubble color reflects studio size.</small>
+                                    </div>
+                                    <div class="cluster-legend" id="clusterLegend" aria-live="polite"></div>
                                 </div>
-                                <p class="trend-status cluster-status" id="clusterStatus">Loading cluster telemetry&hellip;</p>
-                                <div class="cluster-legend" id="clusterLegend" aria-live="polite"></div>
-                                <div class="cluster-panel__divider" aria-hidden="true"></div>
-                                <div class="compare-panel__heading">
-                                    <span>Genre Selection</span>
-                                    <small>Pick up to four genres. The bubble cluster stays synced to the same Trends playback while using these selections as its attractor zones.</small>
+                                <div class="trend-bubble-card trend-bubble-card--controls">
+                                    <div class="compare-panel__heading">
+                                        <span>Genre Selection</span>
+                                        <small>Pick up to four genres. The bubble cluster stays synced to the same Trends playback while using these selections as its attractor zones.</small>
+                                    </div>
+                                    <div class="cluster-picker">
+                                        <label class="trend-control cluster-picker__control" for="clusterGenreSelect">
+                                            <span>Add Genre</span>
+                                            <select id="clusterGenreSelect" aria-label="Add a genre to the bubble cluster filters">
+                                                <option value="">Select a genre</option>
+                                            </select>
+                                        </label>
+                                        <p class="cluster-picker__hint" id="clusterGenreHint">Select up to four genres.</p>
+                                    </div>
+                                    <div class="cluster-selected-list" id="clusterGenreChips" aria-label="Selected genre filters"></div>
+                                    <button class="trend-button cluster-clear" id="clusterClear" type="button" disabled>Clear Genres</button>
                                 </div>
-                                <div class="cluster-picker">
-                                    <label class="trend-control cluster-picker__control" for="clusterGenreSelect">
-                                        <span>Add Genre</span>
-                                        <select id="clusterGenreSelect" aria-label="Add a genre to the bubble cluster filters">
-                                            <option value="">Select a genre</option>
-                                        </select>
-                                    </label>
-                                    <p class="cluster-picker__hint" id="clusterGenreHint">Select up to four genres.</p>
-                                </div>
-                                <div class="cluster-selected-list" id="clusterGenreChips" aria-label="Selected genre filters"></div>
-                                <button class="trend-button cluster-clear" id="clusterClear" type="button" disabled>Clear Genres</button>
                             </section>
                         </article>
-                        <article class="canvas__cell canvas__cell--trend canvas__cell--trend-main">
+                        <article class="canvas__cell canvas__cell--trend canvas__cell--trend-view">
                             <header>Timelapse</header>
                             <form class="trend-controls" aria-label="Momentum surface controls">
                                 <label class="trend-control">
@@ -152,6 +161,9 @@
                                 <canvas id="trendChart" width="960" height="420" aria-label="Trend line chart placeholder"></canvas>
                                 <div class="trend-tooltip" id="trendTooltip" hidden></div>
                             </div>
+                        </article>
+                        <article class="canvas__cell canvas__cell--trend canvas__cell--trend-bubble-view">
+                            <header>Bubble Clusters</header>
                             <section class="trend-bubble-section" aria-labelledby="trendBubbleHeading">
                                 <div class="cluster-chart" id="clusterChartShell" role="presentation">
                                     <svg
