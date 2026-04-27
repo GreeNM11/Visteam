@@ -49,6 +49,7 @@ class SteamDataCollector:
         print(f"Starting batch history collection for {len(appids)} games (past {days} days)...")
         
         history_results = []
+        # Everything older than this threshold gets ignored so the output stays focused on the requested window.
         start_threshold = datetime.now() - timedelta(days=days)
         start_ts = start_threshold.timestamp() * 1000
 
@@ -72,6 +73,7 @@ class SteamDataCollector:
             
             if game_history:
                 df_temp = pd.DataFrame(game_history)
+                # Multiple samples can land on the same date, so we keep the daily max as the peak CCU for that day.
                 df_daily = df_temp.groupby(['appid', 'date']).agg({'peak_ccu': 'max'}).reset_index()
                 history_results.extend(df_daily.to_dict('records'))
                 print(f"  Collected {len(df_daily)} daily peaks.")
@@ -105,7 +107,7 @@ class SteamDataCollector:
                 pos = int(row['Positive'])
                 neg = int(row['Negative'])
                 price = float(row['Price'])
-                # Boxleiter Method
+                # Boxleiter-style estimate: reviews act as a rough sales proxy, then we scale by price.
                 return round((pos + neg) * REVENUE_MULTIPLIER * price, 2)
             except (ValueError, TypeError):
                 return 0.0

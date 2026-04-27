@@ -61,6 +61,7 @@ export function initCompareModule(shared) {
     const compareSearchShell = compareSearchInput.closest(".compare-search");
     const compareChartShell = compareCanvas.closest(".compare-chart");
 
+    // This state object keeps all compare-specific UI state in one place: picks, zoom, markers, hover, and drag mode.
     const state = {
         selectedAppIds: [],
         metricMode: "raw",
@@ -87,6 +88,7 @@ export function initCompareModule(shared) {
 
     const getColorForIndex = (index) => COLOR_PALETTE[index % COLOR_PALETTE.length];
 
+    // The zoom window should never drift outside the real timeline, even after data reloads or marker updates.
     const ensureVisibleWindow = () => {
         if (!dataStore.ready) {
             return;
@@ -147,6 +149,7 @@ export function initCompareModule(shared) {
             return [];
         }
 
+        // Indexed mode treats the first meaningful value like a baseline of 100 so trend shape is easier to compare.
         const exactBaseline = points[0];
         const fallbackBaseline = points.find((value) => value > 0) || 0;
         const baseline = exactBaseline > 0 ? exactBaseline : fallbackBaseline;
@@ -158,6 +161,7 @@ export function initCompareModule(shared) {
         return points.map((value) => (value / baseline) * 100);
     };
 
+    // Build one normalized config object so the draw functions do not need to re-derive the same window logic.
     const buildCompareConfig = () => {
         if (!dataStore.ready) {
             return null;
@@ -229,6 +233,7 @@ export function initCompareModule(shared) {
         return `${label.slice(0, Math.max(maxLength - 3, 0))}...`;
     };
 
+    // Major-event markers are generated from the same selected games so the chart only shows relevant releases/updates.
     const buildMajorEventMarkers = () => {
         if (!dataStore.majorEventsByAppId || !state.selectedAppIds.length || !dataStore.dateRange) {
             return [];
@@ -495,6 +500,7 @@ export function initCompareModule(shared) {
             !dataStore.ready || state.selectedAppIds.length < COMPARE_MIN_SELECTION;
     };
 
+    // Main chart rendering handles line drawing, shaded zoom feedback, event pins, and cached hit-test coordinates.
     const drawCompareChart = (config) => {
         if (!config) {
             drawCanvasPlaceholder(
@@ -734,6 +740,7 @@ export function initCompareModule(shared) {
         };
     };
 
+    // The overview chart is the compact "map" of the full timeline that powers brush-based zooming below the main chart.
     const drawOverviewChart = (config) => {
         if (!config) {
             drawCanvasPlaceholder(
@@ -1033,6 +1040,7 @@ export function initCompareModule(shared) {
         compareTooltip.hidden = false;
     };
 
+    // Zooming from the main chart uses the drag rectangle, while the overview canvas uses brush handles and dragging.
     const applyZoomWindow = () => {
         if (!state.zoomDrag || !state.mainRenderMeta || !state.visibleWindow) {
             state.zoomDrag = null;
@@ -1073,6 +1081,7 @@ export function initCompareModule(shared) {
         });
     };
 
+    // Brush mode tells us whether the user grabbed the left handle, right handle, middle window, or empty overview space.
     const getBrushModeAtPoint = (x) => {
         if (!state.overviewRenderMeta) {
             return null;

@@ -2,7 +2,8 @@ import csv
 import os
 import argparse
 
-# Curated major industry events 2022-2025
+# Curated major industry events 2022-2025.
+# These are hand-entered anchors that help compare game-specific spikes against bigger industry moments.
 INDUSTRY_EVENTS = [
     # --- The Game Awards ---
     {"date": "2022-12-08", "event_type": "Industry", "title": "The Game Awards 2022", "url": "https://thegameawards.com/"},
@@ -68,7 +69,7 @@ INDUSTRY_EVENTS = [
 ]
 
 def save_to_csv(output_file):
-    # Ensure directory exists for output
+    # This script is intentionally simple: just dump the curated list into the same CSV shape as game events.
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     if not INDUSTRY_EVENTS:
         print("No events to save.")
@@ -79,7 +80,7 @@ def save_to_csv(output_file):
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         for event in INDUSTRY_EVENTS:
-            # Provide empty string if key is missing in dictionary
+            # Some entries intentionally omit URLs, so we backfill missing keys with empty strings.
             row = {k: event.get(k, "") for k in keys}
             writer.writerow(row)
     print(f"Successfully saved {len(INDUSTRY_EVENTS)} industry events to {output_file}")

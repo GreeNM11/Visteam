@@ -30,6 +30,7 @@ const getCompanyType = (meta) => {
     return "Indie";
 };
 
+// Each selected genre gets a fixed "attractor" spot so the cluster layout stays readable instead of drifting randomly.
 const getAttractorCoordinates = (genres) => {
     const layout = {
         1: [{ x: 0.5, y: 0.5 }],
@@ -149,6 +150,7 @@ export function initClusterModule(shared) {
     const bubbleLayer = svg.append("g").attr("class", "cluster-bubble-layer");
     const attractorLabelLayer = svg.append("g").attr("class", "cluster-attractor-label-layer");
 
+    // This module keeps its own state because the bubble sim has more moving pieces than a simple render-only view.
     const state = {
         catalog: [],
         genreStats: new Map(),
@@ -245,6 +247,7 @@ export function initClusterModule(shared) {
             return;
         }
 
+        // Chips double as both labels and remove buttons so the selected filters are always visible at a glance.
         genreChipContainer.innerHTML = state.selectedGenres
             .map((genre) => {
                 const stats = state.genreStats.get(genre) || { count: 0 };
@@ -307,6 +310,7 @@ export function initClusterModule(shared) {
         `;
     };
 
+    // Attractors are the visual anchors for each genre, so we redraw them whenever the genre selection changes.
     const renderAttractors = (attractors) => {
         const fieldJoin = attractorFieldLayer
             .selectAll("g.cluster-attractor")
@@ -402,6 +406,7 @@ export function initClusterModule(shared) {
         bottom: CLUSTER_HEIGHT - 28
     });
 
+    // The sim can push nodes off screen, so every tick gets clamped back into the safe bubble area.
     const updateBubblePositions = () => {
         const bounds = getBubbleBounds();
 
@@ -444,6 +449,7 @@ export function initClusterModule(shared) {
         positionTooltip(event);
     };
 
+    // Tooltip binding lives here so the d3 enter/update code stays focused on drawing instead of DOM event details.
     const bindBubbleEvents = (selection) => {
         selection
             .on("mouseenter", function handleMouseEnter(event, node) {
@@ -461,6 +467,7 @@ export function initClusterModule(shared) {
             });
     };
 
+    // Bubbles are keyed by app id so the same game keeps its identity across frames when the trend playback advances.
     const renderBubbles = (nodes) => {
         const join = bubbleLayer
             .selectAll("g.cluster-bubble")
@@ -528,6 +535,7 @@ export function initClusterModule(shared) {
         state.activeAppIds = new Set();
     };
 
+    // We reuse one force simulation and just swap nodes/targets when the frame changes so the motion feels continuous.
     const ensureSimulation = () => {
         if (state.simulation) {
             return;
@@ -567,6 +575,7 @@ export function initClusterModule(shared) {
         }, 650);
     };
 
+    // This precomputes every frame up front so playback only has to swap frame data instead of filtering the catalog live.
     const buildAnimationConfig = (sharedState) => {
         if (
             !dataStore.ready ||
@@ -679,6 +688,7 @@ export function initClusterModule(shared) {
 
     const getEntrySeed = (appId, frameIndex) => hashString(appId) + frameIndex * 17;
 
+    // Small seeded offsets stop identical bubbles from stacking perfectly on top of each other when they first appear.
     const buildNodes = (games, attractors, frameIndex) => {
         const previousActiveAppIds = new Set(state.activeAppIds);
         const attractorByGenre = new Map(attractors.map((attractor) => [attractor.genre, attractor]));
@@ -765,6 +775,7 @@ export function initClusterModule(shared) {
         )}. ${durationSummary}`;
     };
 
+    // Rendering a frame means: draw attractors/legend, build the current nodes, then let the force sim settle them.
     const renderFrame = (config, frameIndex, mode = "preview") => {
         const safeFrameIndex = clamp(frameIndex, 0, Math.max(config.frames.length - 1, 0));
 
@@ -820,6 +831,7 @@ export function initClusterModule(shared) {
         return "preview";
     };
 
+    // This is the handshake point between the shared trend timeline and the local bubble-cluster filtering state.
     const syncFromSharedState = (eventType = "reset") => {
         renderGenrePicker();
         renderSelectedGenres();

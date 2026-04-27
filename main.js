@@ -48,6 +48,7 @@ const longDateFormatter = new Intl.DateTimeFormat("en", {
     day: "numeric"
 });
 
+// This works like the shared cache for the whole dashboard after the CSV files load.
 const dataStore = {
     metadata: new Map(),
     rankedAppIds: [],
@@ -130,6 +131,7 @@ const formatPercentChange = (startValue, endValue) => {
     return percentFormatter.format((endValue - startValue) / startValue);
 };
 const getCompanyLabel = (meta) => meta.publisher || meta.developer || "Independent Studio";
+// Some of the source CSVs are inconsistent, so we parse rows ourselves instead of assuming a perfect file.
 const parseCSVRows = (text) => {
     const rows = [];
     let current = "";
@@ -181,6 +183,7 @@ const normalizeScope = (studioSize = "") => {
     }
     return "all";
 };
+// The top500 file gives us the game labels plus the ranking order we want to reuse in the UI.
 const hydrateMetadata = (text) => {
     const rows = parseCSVRows(text);
     if (!rows.length) {
@@ -225,6 +228,7 @@ const hydrateMetadata = (text) => {
 
     return { metaMap, rankedAppIds: ordered.map((entry) => entry.appId) };
 };
+// The daily peaks file is a wide table, so we convert it into appId -> date -> value for faster lookups later.
 const hydrateDailySeries = (text) => {
     const rows = parseCSVRows(text);
     if (!rows.length) {
@@ -274,6 +278,7 @@ const hydrateDailySeries = (text) => {
     const dateRange = minDate && maxDate ? { start: minDate, end: maxDate } : null;
     return { seriesById, dateRange };
 };
+// Event CSVs come from a couple different generators, so we normalize headers and dates into one clean shape here.
 const hydrateMajorEvents = (text) => {
     const rows = parseCSVRows(text);
     if (!rows.length) {
@@ -343,6 +348,7 @@ const hydrateMajorEvents = (text) => {
 
     return eventsByAppId;
 };
+// Every visualization uses the same day-by-day timeline so frame indexes stay consistent across modules.
 const buildTimeline = (startDate, endDate) => {
     const timeline = [];
     let cursor = cloneCalendarDate(startDate);
@@ -427,6 +433,7 @@ const drawCanvasPlaceholder = (ctx, canvas, title, detail) => {
     ctx.fillText(detail, canvas.width / 2, canvas.height / 2 + 12);
 };
 
+// The trend view acts like the timekeeper, and the other views subscribe so they stay in sync with playback.
 const createTrendSyncController = () => {
     const listeners = new Set();
     const state = {
@@ -505,6 +512,7 @@ const createTrendSyncController = () => {
     };
 };
 
+// Load every telemetry file once on startup, then reshape it into the structures the charts actually need.
 const loadTelemetry = async () => {
     const fetchFirstAvailableCsv = async (relativePaths) => {
         for (const relativePath of relativePaths) {
@@ -574,6 +582,7 @@ const loadTelemetry = async () => {
 const telemetryPromise = loadTelemetry();
 const trendSync = createTrendSyncController();
 
+// Navigation just hides and shows view panels instead of doing any page reloads.
 const setupNavigation = () => {
     const navLinks = document.querySelectorAll(".rail nav a[data-view]");
     const blankState = document.querySelector(".canvas__blank");
@@ -616,6 +625,7 @@ const setupNavigation = () => {
     });
 };
 
+// Shared context keeps the feature modules lightweight because they all receive the same helpers and data references.
 const createSharedContext = () => ({
     dataStore,
     telemetryPromise,

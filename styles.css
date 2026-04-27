@@ -1,5 +1,6 @@
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap");
 
+/* Shared color system for the whole dashboard. */
 :root {
     --bg: #04060a;
     --panel: rgba(13, 17, 25, 0.85);
@@ -25,6 +26,7 @@ body {
     min-height: 100vh;
 }
 
+/* These soft gradients keep the background from feeling like a flat black screen. */
 .background-glow {
     position: fixed;
     inset: 0;
@@ -35,6 +37,7 @@ body {
     opacity: 0.7;
 }
 
+/* Main two-column shell: left rail for navigation, right side for the active workspace. */
 .layout {
     display: grid;
     grid-template-columns: 150px 1fr;
@@ -45,6 +48,7 @@ body {
     min-height: 100vh;
 }
 
+/* Navigation rail styling lives together so the app switcher reads like one component. */
 .rail {
     background: var(--panel);
     border-radius: 0;
@@ -141,6 +145,7 @@ body {
     stroke: var(--accent);
 }
 
+/* Workspace styles cover the main content panel that swaps between the dashboard views. */
 .workspace {
     background: var(--panel-strong);
     border-radius: 0;
@@ -233,6 +238,7 @@ body {
     letter-spacing: 0.04em;
 }
 
+/* Canvas shell and trend controls are the first "real" interactive section once a view is opened. */
 .canvas {
     border: none;
     border-radius: 0;

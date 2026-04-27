@@ -61,6 +61,7 @@ export function initTrendModule(shared) {
     let lastRenderedCoords = null;
     let lastRenderedSeries = [];
     let lastPublishedFrameIndex = -1;
+    // Hover state is kept outside the main animation state so we can fade emphasis without rebuilding the data.
     const hoverState = {
         activeKey: null,
         intensityByKey: {},
@@ -142,6 +143,7 @@ export function initTrendModule(shared) {
         });
     };
 
+    // We do hit testing by x-position first so hovering a line feels stable even when multiple lines are close together.
     const getLineDistanceAtCursorX = (coords, mouseX, mouseY) => {
         if (!coords || coords.length < 2) {
             return Number.POSITIVE_INFINITY;
@@ -230,6 +232,7 @@ export function initTrendModule(shared) {
         return nearest;
     };
 
+    // This takes the shared telemetry cache and slices out just the games and dates the user asked to animate.
     const buildDatasetsFromTelemetry = (count, scope, startDate, endDate) => {
         if (!dataStore.ready || !dataStore.dateRange) {
             return null;
@@ -277,6 +280,7 @@ export function initTrendModule(shared) {
         };
     };
 
+    // The chart can render a partial timeline, which is what lets GSAP "draw" the timelapse frame by frame.
     const drawChart = (timeline, datasets, visibleProgress) => {
         ctx.clearRect(0, 0, trendCanvas.width, trendCanvas.height);
         const padding = 50;
@@ -469,6 +473,7 @@ export function initTrendModule(shared) {
         }
     };
 
+    // Pull the current form controls into one object so preview, restart, and sync code all read the same input state.
     const collectSelection = () => {
         const fallbackStart = dataStore.dateRange?.start || cloneCalendarDate(new Date());
         const fallbackEnd = dataStore.dateRange?.end || cloneCalendarDate(new Date());
@@ -541,6 +546,7 @@ export function initTrendModule(shared) {
         );
     };
 
+    // Any control change should redraw the preview first, then the actual animation can reuse that prepared config.
     const refreshPreview = () => {
         stopAnimation(true);
         hideTooltip();
@@ -576,6 +582,7 @@ export function initTrendModule(shared) {
         renderPreview(config, selection);
     };
 
+    // Starting is really "rebuild whatever the current control values point to, then kick off the main GSAP loop."
     const startOrRestartAnimation = () => {
         if (!dataStore.ready) {
             showTrendStatus("Telemetry still syncing. Hold tight.", true);
@@ -591,6 +598,7 @@ export function initTrendModule(shared) {
         startLoop();
     };
 
+    // This is the actual timelapse engine. GSAP drives a floating progress value and we convert it into frame indexes.
     const startLoop = () => {
         if (!previewConfig) {
             return;
@@ -792,6 +800,7 @@ export function initTrendModule(shared) {
         }
     });
 
+    // Hovering the canvas tries to lock onto the nearest visible line, then the nearest point on that same line.
     trendCanvas.addEventListener("mouseleave", () => {
         hideTooltip();
         setHoveredSeries(null);

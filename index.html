@@ -10,6 +10,7 @@
     <div class="background-glow" aria-hidden="true"></div>
 
     <div class="layout">
+        <!-- Left rail is our lightweight view switcher, so the main workspace can stay single-page. -->
         <aside class="rail" aria-label="Primary navigation">
             <div class="brand">ViSteam</div>
             <nav>
@@ -35,6 +36,7 @@
         </aside>
 
         <div class="workspace">
+            <!-- Top summary stays visible across views so the dashboard still feels "live" before a chart is opened. -->
             <header class="top-bar">
                 <div>
                     <p class="eyebrow">Steam Intelligence</p>
@@ -46,6 +48,7 @@
                 </div>
             </header>
 
+            <!-- This band is basically the home/overview strip and gets hidden once a focused chart view is active. -->
             <section class="signal-band" aria-label="quick metrics">
                 <article>
                     <p>Tracked Titles</p>
@@ -65,6 +68,7 @@
                 </article>
             </section>
 
+            <!-- All feature views are mounted ahead of time here and toggled with hidden attributes from main.js. -->
             <section class="canvas" aria-label="graph staging area">
                 <div class="canvas__blank" role="status">
                     <p>Visual command center primed.</p>
@@ -72,6 +76,7 @@
                 </div>
                 <div class="canvas__content" data-view="trends" hidden>
                     <div class="canvas__grid canvas__grid--trends">
+                        <!-- The top card explains how the cluster view borrows the same timeline as the timelapse below. -->
                         <article class="canvas__cell canvas__cell--trend-top">
                             <header>Bubble Cluster Guide</header>
                             <section class="cluster-panel cluster-panel--embedded cluster-panel--top">
@@ -113,6 +118,7 @@
                         </article>
                         <article class="canvas__cell canvas__cell--trend canvas__cell--trend-view">
                             <header>Timelapse</header>
+                            <!-- These controls define the shared playback state that both the line chart and cluster chart read. -->
                             <form class="trend-controls" aria-label="Momentum surface controls">
                                 <label class="trend-control">
                                     <span>Top Games</span>
@@ -164,6 +170,7 @@
                         </article>
                         <article class="canvas__cell canvas__cell--trend canvas__cell--trend-bubble-view">
                             <header>Bubble Clusters</header>
+                            <!-- The SVG cluster is separate from the canvas chart because d3 force nodes are easier to manage in SVG. -->
                             <section class="trend-bubble-section" aria-labelledby="trendBubbleHeading">
                                 <div class="cluster-chart" id="clusterChartShell" role="presentation">
                                     <svg
@@ -180,6 +187,7 @@
                 </div>
                 <div class="canvas__content" data-view="compare" hidden>
                     <div class="canvas__grid canvas__grid--compare">
+                        <!-- Compare view keeps controls and both charts together so zoom/search/markers feel like one workspace. -->
                         <article class="canvas__cell canvas__cell--compare-main">
                             <header>Player Counter Explorer</header>
                             <div class="compare-toolbar">

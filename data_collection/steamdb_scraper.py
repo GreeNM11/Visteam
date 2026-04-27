@@ -12,6 +12,7 @@ async def download_steamdb_csv(appid, output_dir, cdp_url="http://localhost:9222
     url = f"https://steamdb.info/app/{appid}/charts/"
     output_path = os.path.join(output_dir, f"{appid}.csv")
     
+    # This script expects a real browser session so Cloudflare checks can be solved once and reused.
     # We overwrite to ensure we get the better version
     # if os.path.exists(output_path):
     #     print(f"[{appid}] already exists. Skipping.")
@@ -34,7 +35,7 @@ async def download_steamdb_csv(appid, output_dir, cdp_url="http://localhost:9222
             print(f"[{appid}] Waiting for chart...")
             await page.wait_for_selector(".highcharts-container", timeout=30000)
             
-            # 1. Click 'All' resolution if available
+            # Click the widest available range first so the export includes the full history.
             print(f"[{appid}] Selecting 'All' time range...")
             await page.evaluate("""
                 () => {
@@ -48,7 +49,7 @@ async def download_steamdb_csv(appid, output_dir, cdp_url="http://localhost:9222
             """)
             await asyncio.sleep(2) # Wait for chart to re-render with full data
 
-            # 2. Trigger the official download
+            # Try the official CSV download first because it usually preserves SteamDB's own formatting.
             print(f"[{appid}] Triggering official CSV download...")
             
             try:
@@ -81,6 +82,7 @@ async def download_steamdb_csv(appid, output_dir, cdp_url="http://localhost:9222
             except Exception as e:
                 print(f"[{appid}] Official download failed: {e}")
                 print(f"[{appid}] Falling back to JS extraction...")
+                # Fallback still gets us the chart data even if the download button path breaks.
                 csv_data = await page.evaluate("Highcharts.charts[0].getCSV()")
                 if csv_data:
                     with open(output_path, "w", encoding="utf-8") as f:
@@ -116,7 +118,7 @@ async def batch_process(input_csv, appid_single, output_dir, cdp_url):
         print("No AppIDs found.")
         return
 
-    # Check existing files to avoid repeats
+    # Skip games that already have CSVs so reruns can continue from where the last batch stopped.
     existing_files = {f.replace(".csv", "") for f in os.listdir(output_dir) if f.endswith(".csv")}
     remaining_appids = [aid for aid in appids if aid not in existing_files]
     

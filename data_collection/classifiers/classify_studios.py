@@ -43,7 +43,7 @@ MEDIUM_STUDIOS = {
 }
 
 def classify(devs_str, pubs_str):
-    # Normalize and split
+    # Put developers and publishers into one normalized set so either one can influence the final label.
     names = set()
     if devs_str:
         names.update([n.strip().lower() for n in devs_str.split(',')])
@@ -53,7 +53,7 @@ def classify(devs_str, pubs_str):
     large_lower = {n.lower() for n in LARGE_STUDIOS}
     medium_lower = {n.lower() for n in MEDIUM_STUDIOS}
     
-    # Check for direct matches or substrings
+    # Direct matches are best, but substring checks catch naming variants like studio suffixes.
     is_large = False
     is_medium = False
     
@@ -90,6 +90,7 @@ def process_classification():
         print(f"Error: {INPUT_FILE} not found.")
         return
 
+    # Read every row, add one new column, then write the enriched dataset back out.
     print(f"Classifying studios in {INPUT_FILE}...")
     
     rows = []
@@ -110,7 +111,7 @@ def process_classification():
 
     print(f"Classification complete! Saved to {OUTPUT_FILE}")
     
-    # Stats
+    # Quick totals are handy for sanity-checking the classifier output.
     stats = {}
     for row in rows:
         size = row['Studio Size']

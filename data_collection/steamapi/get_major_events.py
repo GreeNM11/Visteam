@@ -52,12 +52,14 @@ class SteamEventCollector:
         tags = item.get("tags", [])
         if tags is None: tags = []
         
+        # First throw away the obviously noisy announcement-style posts.
         if any(kw in title for kw in EXCLUDE_KEYWORDS):
             return False
 
         if any(kw in title for kw in MINOR_KEYWORDS) or " patch" in title or " fix" in title:
             return False
 
+        # Version numbers help a lot, but we treat 1.2.3-style hotfix numbers differently from 2.0-style milestones.
         versions = re.findall(r'[vV]?(\d+\.[\d\.]+)', title)
         has_major_ver = False
         has_minor_ver = False
@@ -89,6 +91,7 @@ class SteamEventCollector:
         if not events:
             return []
             
+        # This keeps one game from spamming multiple near-duplicate update posts into the final dataset.
         sorted_events = sorted(events, key=lambda x: x['date'])
         filtered = []
         
@@ -136,6 +139,7 @@ class SteamEventCollector:
         print(f"Collecting events for AppID: {appid}...")
         all_events = []
         
+        # We treat release day as a major event too because it usually explains the first big player spike.
         release_date = self.get_release_date(appid)
         if release_date:
             try:
@@ -161,6 +165,7 @@ class SteamEventCollector:
             print(f"Error: {input_csv} not found.")
             return
 
+        # Pull every appid first, then walk through them one by one so rate limiting is easier to control.
         with open(input_csv, mode='r') as f:
             reader = csv.DictReader(f)
             appids = [row['appid'] for row in reader]
@@ -176,6 +181,7 @@ class SteamEventCollector:
 
     def save_to_csv(self, results):
         if results:
+            # Reuse the first row's keys so the output stays simple and consistent.
             keys = results[0].keys()
             with open(self.output_file, 'w', newline='', encoding='utf-8') as f:
                 dict_writer = csv.DictWriter(f, fieldnames=keys)

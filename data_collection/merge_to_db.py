@@ -10,6 +10,7 @@ def merge_to_sql(csv_dir, events_csv, db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    # Rebuild the tables from scratch so the database always matches the current CSV exports.
     cursor.execute("DROP TABLE IF EXISTS player_history")
     cursor.execute("""
         CREATE TABLE player_history (
@@ -36,6 +37,7 @@ def merge_to_sql(csv_dir, events_csv, db_path):
     
     player_data = []
     for fpath in csv_files:
+        # AppIDs normally come from the filename, but we still guard against odd scraper naming.
         appid = os.path.basename(fpath).replace(".csv", "")
         if not appid.isdigit():
             import re
@@ -60,6 +62,7 @@ def merge_to_sql(csv_dir, events_csv, db_path):
         cursor.executemany("INSERT INTO player_history VALUES (?, ?, ?, ?)", player_data)
 
     if os.path.exists(events_csv):
+        # Events stay in a separate table so the frontend can overlay releases and updates on demand.
         print(f"Processing events from {events_csv}...")
         event_records = []
         with open(events_csv, 'r', encoding='utf-8') as f:
@@ -79,6 +82,7 @@ def merge_to_sql(csv_dir, events_csv, db_path):
 
     conn.commit()
     
+    # These indexes matter because most chart queries are grouped by appid.
     print("Creating indexes...")
     cursor.execute("CREATE INDEX idx_players_appid ON player_history(appid)")
     cursor.execute("CREATE INDEX idx_events_appid ON events(appid)")

@@ -2,6 +2,7 @@ import csv
 import os
 import sys
 
+# Some of the raw rows are huge, so we raise the CSV field limit before reading the export.
 csv.field_size_limit(sys.maxsize)
 
 INPUT_FILE = "data_collection/games.csv"
@@ -36,6 +37,7 @@ def filter_games():
         print(f"Error: {FILTER_FILE} not found.")
         return
 
+    # First load the curated AppID list so the giant games export can be filtered in one pass.
     print(f"Loading filtered AppIDs from {FILTER_FILE}...")
     filtered_appids = set()
     try:
@@ -56,10 +58,12 @@ def filter_games():
     
     try:
         with open(INPUT_FILE, 'r', encoding='utf-8') as f:
+            # Skip the broken source header row and replace it with the corrected one above.
             next(f)
             reader = csv.DictReader(f, fieldnames=CORRECT_HEADER)
             
             with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as out_f:
+                # We only keep the columns the later pipeline actually uses.
                 writer = csv.DictWriter(out_f, fieldnames=EXPORT_FIELDS, extrasaction='ignore')
                 writer.writeheader()
                 
@@ -68,6 +72,7 @@ def filter_games():
                     if count % 10000 == 0:
                         print(f"Processed {count} rows...")
                     
+                    # Only rows whose AppID survived the earlier filtering step get written out.
                     if row['AppID'] and row['AppID'].strip() in filtered_appids:
                         writer.writerow(row)
                         matches += 1
